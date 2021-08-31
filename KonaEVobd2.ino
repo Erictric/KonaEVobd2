@@ -6,6 +6,7 @@
   * https://randomnerdtutorials.com/esp32-esp8266-publish-sensor-readings-to-google-sheets/
   * 
 */
+#include "Arduino.h"
 #include "SafeString.h"
 #include "ELMduino.h"
 #include "EEPROM.h"
@@ -177,6 +178,7 @@ bool initscan = false;
 bool InitRst = false;
 bool kWh_update = false;
 bool corr_update = false;
+bool ESP_on = false;
 int update_lock = 0;
 bool DrawBackground = true;
 char title1[12];
@@ -204,6 +206,9 @@ int nbr_decimal2;
 int nbr_decimal3;
 int nbr_decimal4;
 
+unsigned long ESPinitTimer = 0;
+unsigned long ESPTimer = 0;
+unsigned long ESPTimerInterval = 120000;
 
 /*////// Variables for Google Sheet data transfer ////////////*/
 bool send_enabled = false;
@@ -304,7 +309,7 @@ void setup() {
   /* uncomment if you need to display Safestring results on Serial Monitor */
   //SafeString::setOutput(Serial);
 
-  
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_35,0);  // initialize ESP wakeup on button 1 activation
 
   //xTaskCreatePinnedToCore(
     //Task2code, /* Function to implement the task */
@@ -365,7 +370,7 @@ void setup() {
     Serial.println("Task started");
     delay(500);
 
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(TFT_BLACK);  
   
 }   
 
@@ -491,6 +496,9 @@ void read_data(){
           OPtimemins = convertToInt(results.frames[7], 2, 4) * 0.01666666667;
           OPtimehours = OPtimemins * 0.01666666667;
           }
+          if (BMS_ign){
+            ESP_on = true;
+          }          
           UpdateNetEnergy();
           break;
 
@@ -991,6 +999,7 @@ void ButtonLoop() {
             return;
           }
         }
+        
         else{
           Serial.println("Button short press");
           Serial.print("screenNbr");Serial.print(screenNbr);          
@@ -1128,7 +1137,7 @@ void setVessOff(char selector){
 
 /*//////Function to save some variable before turn off the car //////////*/
 
-void save_lost(char selector){  
+void save_lost(char selector){         
         if (selector == 'D' && !DriveOn){ 
           DriveOn = true;
         }        
@@ -1143,6 +1152,49 @@ void save_lost(char selector){
         }
       }
 
+void stop_esp(){
+        ESP_on = false; 
+        if (DriveOn){                
+          EEPROM.writeFloat(32, degrad_ratio);
+          Serial.println("new_lost saved to EEPROM");
+          EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
+          EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
+          EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
+          EEPROM.commit();
+        }
+        tft.setTextFont(1);
+        tft.setTextSize(2);
+        tft.fillScreen(TFT_BLACK);
+        tft.drawString("Wifi", tft.width() / 2, tft.height() / 2 - 16);
+        tft.drawString("Stopped", tft.width() / 2, tft.height() / 2);          
+        WiFi.disconnect();
+        delay(1500);
+        tft.fillScreen(TFT_BLACK);
+        tft.drawString("OBD2", tft.width() / 2, tft.height() / 2 - 16);
+        tft.drawString("Stopped", tft.width() / 2, tft.height() / 2);
+        ELM_PORT.end();
+        delay(1500);
+        esp_deep_sleep_start();
+        //tft.fillScreen(TFT_BLACK);            
+      }
+
+void start_esp(){
+        tft.init(); // display initialisation
+        tft.begin();
+        tft.setRotation(0);  // 0 & 2 Portrait. 1 & 3 landscape
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextColor(TFT_GREEN);
+        tft.setCursor(0, 0);
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextFont(1);
+        tft.setTextSize(2);        
+        tft.drawString("Starting", tft.width() / 2, tft.height() / 2 - 16);
+        tft.drawString("ESP", tft.width() / 2, tft.height() / 2);
+        delay(1000);
+        ConnectToOBD2(tft);
+        ConnectWifi(tft);
+        DrawBackground = true;       
+}  
 
 void SetupMode(){
     tft.fillScreen(TFT_BLACK);    
@@ -1234,7 +1286,9 @@ void draw_greenbox_lvl4(){
 //                   Format Displays in Pages
 //--------------------------------------------------------------------------------------------
 
-void DisplayPage(){        
+void DisplayPage(){ 
+        Serial.print("DrawBackground: ");
+        Serial.println(DrawBackground);      
         if(DrawBackground){
           tft.fillScreen(TFT_BLACK);
           tft.setTextDatum(MC_DATUM);
@@ -1359,10 +1413,30 @@ void page1(){
         value2_float = UsedSoC;
         value3_float = Net_kWh;
         value4_float = EstLeft_kWh;
-        nbr_decimal1 = 0;
-        nbr_decimal2 = 1;
-        nbr_decimal3 = 1;
-        nbr_decimal4 = 1;        
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 1;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 1;
+        }
+        if(value4_float >= 100){
+          nbr_decimal4 = 0;
+        }
+        else{
+          nbr_decimal4 = 1;
+        }        
 
         DisplayPage();               
 }
@@ -1379,10 +1453,30 @@ void page2(){
         value2_float = Est_range;
         value3_float = CurrOPtime;
         value4_float = EstFull_Ah;
-        nbr_decimal1 = 1;
-        nbr_decimal2 = 0;
-        nbr_decimal3 = 1;
-        nbr_decimal4 = 0;
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 1;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 1;
+        }
+        if(value4_float >= 100){
+          nbr_decimal4 = 0;
+        }
+        else{
+          nbr_decimal4 = 1;
+        }
 
         DisplayPage();       
 }
@@ -1399,10 +1493,30 @@ void page3(){
         value2_float = Net_kWh;
         value3_float = left_kwh;
         value4_float = EstFull_kWh;
-        nbr_decimal1 = 1;
-        nbr_decimal2 = 1;
-        nbr_decimal3 = 1;
-        nbr_decimal4 = 1;
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 1;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 1;
+        }
+        if(value4_float >= 100){
+          nbr_decimal4 = 0;
+        }
+        else{
+          nbr_decimal4 = 1;
+        }
 
         DisplayPage();                            
 }
@@ -1421,6 +1535,18 @@ void page4(){
         value4_float = BattMaxT;
         nbr_decimal1 = 1;
         nbr_decimal2 = 1;
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 1;
+        }
         if(value3_float >= 100){
           nbr_decimal3 = 0;
         }
@@ -1432,7 +1558,7 @@ void page4(){
         }
         else{
           nbr_decimal4 = 1;
-        } 
+        }
 
         DisplayPage();        
 }
@@ -1449,15 +1575,30 @@ void page5(){
         value2_float = Power;
         value3_float = BattMinT;
         value4_float = SoC;
-        nbr_decimal1 = 0;
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
         if(value2_float >= 100){
           nbr_decimal2 = 0;
         }
         else{
           nbr_decimal2 = 1;
-        }        
-        nbr_decimal3 = 1;
-        nbr_decimal4 = 1;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 1;
+        }
+        if(value4_float >= 100){
+          nbr_decimal4 = 0;
+        }
+        else{
+          nbr_decimal4 = 1;
+        }      
 
         DisplayPage();        
 }
@@ -1474,15 +1615,30 @@ void page6(){
         value2_float = CurrTripOdo;
         value3_float = CurrUsedSoC;
         value4_float = AuxBattSoC;
-        nbr_decimal1 = 1;
-        nbr_decimal2 = 0;
-        nbr_decimal3 = 1;        
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 1;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 1;
+        }
         if(value4_float >= 100){
           nbr_decimal4 = 0;
         }
         else{
           nbr_decimal4 = 1;
-        }        
+        }    
 
         DisplayPage();            
 }
@@ -1499,9 +1655,24 @@ void page7(){
         value2_float = MAXcellv;
         value3_float = CellVdiff;
         value4_float = SOH;
-        nbr_decimal1 = 1;
-        nbr_decimal2 = 2;
-        nbr_decimal3 = 2;
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 1;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 2;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 2;
+        }
         if(value4_float >= 100){
           nbr_decimal4 = 0;
         }
@@ -1530,15 +1701,24 @@ void loop() {
     if (!send_enabled){
       sendIntervalOn = true;      
     }
-  } 
+  }
+
+  ESPTimer = millis();
+  if (ESPTimer - ESPinitTimer >= ESPTimerInterval) {
+      ESPinitTimer = ESPTimer;     
+    if (!BMS_ign && (Power >= 0)){
+      stop_esp();      
+    }
+  }
+
                
   /*/////// Read each OBDII PIDs /////////////////*/
 
   read_data();
-  
+    
   /*/////// Display Page Number /////////////////*/
   
-  if(!SetupOn){
+  if(!SetupOn && (ESP_on || (Power < 0))){
       switch (screenNbr){  // select page to display                
                case 0: page1(); break;
                case 1: page2(); break;
@@ -1549,11 +1729,17 @@ void loop() {
                case 6: page7(); break;                                                                                        
                }
       }
-  
-  else{ /*/////// Display Setup Page/////////////////*/
-      SetupMode();
+  /*/////// Display Setup Page/////////////////*/
+  else{ 
+      if(ESP_on){
+        SetupMode();
+        }
       }
-                     
+  /*/////// Stop ESP /////////////////*/               
+  if(!BMS_ign && ESP_on){    
+    stop_esp();    
+  }  
+  
   ResetCurrTrip();
   
   //setVessOff(SpdSelect);  //This will momentarely set an output ON to turned off the VESS //  

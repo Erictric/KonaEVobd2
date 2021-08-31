@@ -33,7 +33,7 @@ void ConnectToOBD2(TFT_eSPI& tft){
     tft.drawString("scanner", tft.width() / 2, tft.height() / 2 + 32);
     tft.drawString(" Phase 1", tft.width() / 2, tft.height() / 2 + 48);   
     
-    while (1);
+    //while (1);
   }
 
   if (!myELM327.begin(ELM_PORT,'6')) // select protocol '6'
@@ -49,7 +49,7 @@ void ConnectToOBD2(TFT_eSPI& tft){
     delay(1000);       
     
     //while (1);
-    ESP.restart();
+    esp_deep_sleep_start();
   }
   
   Serial.println("Connected to OBDII");

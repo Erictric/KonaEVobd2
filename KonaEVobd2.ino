@@ -18,6 +18,8 @@
 #include "HTTPClient.h"
 #include "HTTPSRedirect.h"
 #include "WiFiClientSecure.h"
+#include "InterpolationLib.h"
+
 
 #define DEBUG_PORT Serial
 
@@ -205,6 +207,11 @@ int nbr_decimal1;
 int nbr_decimal2;
 int nbr_decimal3;
 int nbr_decimal4;
+
+const int numValues = 21;
+double xValues[21] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
+double yValues[21] = { 0.5587, 0.6021, 0.6079, 0.6153, 0.6239, 0.6299, 0.6338, 0.6368, 0.6395, 0.6424, 0.6462, 0.6518, 0.6624, 0.6701, 0.6784, 0.6871, 0.6959, 0.7051, 0.7146, 0.7247, 0.7349};
+//double yValues[21] = { 0.5503, 0.5930, 0.5988, 0.6061, 0.6146, 0.6205, 0.6243, 0.6273, 0.6299, 0.6328, 0.6365, 0.6420, 0.6524, 0.6601, 0.6683, 0.6768, 0.6855, 0.6945, 0.7039, 0.7138, 0.7239};
 
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
@@ -811,7 +818,7 @@ float RangeCalc(){
 
 float calc_kwh(float min_SoC, float max_SoC){
   
-  static int N = 25;
+  static int N = 100;
   interval = (max_SoC - min_SoC) / N;
   integral = 0,0;
   double x = 0;
@@ -819,8 +826,9 @@ float calc_kwh(float min_SoC, float max_SoC){
     x = min_SoC + interval * i;
     //integral += ((0.001487 * x) + 0.5672);  //64kWh battery energy equation
     //integral += ((0.0018344 * x) + 0.55);  //64kWh battery energy equation    
-    integral += ((0.0014 * x) + 0.5748);  //64kWh battery energy equation
-    //integral += ((2E-7 * pow(x,3)) + (-2.4E-5 * pow(x,2)) + (0.002194 * x) + 0.562);  //64kWh battery energy equation
+    //integral += ((0.0014 * x) + 0.5748);  //64kWh battery energy equation
+    integral += Interpolation::SmoothStep(xValues, yValues, numValues, x);  //64kWh battery energy equation
+    
   }
   return_kwh = integral * interval;
   return return_kwh;

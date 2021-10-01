@@ -158,6 +158,7 @@ float LastSoC = 0;
 double integral; // variable to calculate energy between to SoC values
 double interval; // variable to calculate energy between to SoC values
 float return_kwh; // variable to calculate energy between to SoC values
+float full_kwh;
 float EstFull_kWh;
 float EstFull_Ah;
 float kWh_corr;
@@ -208,10 +209,11 @@ int nbr_decimal2;
 int nbr_decimal3;
 int nbr_decimal4;
 
+/* variable for kWh/%SoC calculation: xValues = %SoC and yValues = kWh */ 
 const int numValues = 21;
 double xValues[21] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
-double yValues[21] = { 0.5587, 0.6021, 0.6079, 0.6153, 0.6239, 0.6299, 0.6338, 0.6368, 0.6395, 0.6424, 0.6462, 0.6518, 0.6624, 0.6701, 0.6784, 0.6871, 0.6959, 0.7051, 0.7146, 0.7247, 0.7349};
-//double yValues[21] = { 0.5503, 0.5930, 0.5988, 0.6061, 0.6146, 0.6205, 0.6243, 0.6273, 0.6299, 0.6328, 0.6365, 0.6420, 0.6524, 0.6601, 0.6683, 0.6768, 0.6855, 0.6945, 0.7039, 0.7138, 0.7239};
+//double yValues[21] = { 0.5587, 0.6021, 0.6079, 0.6153, 0.6239, 0.6299, 0.6338, 0.6368, 0.6395, 0.6424, 0.6462, 0.6518, 0.6624, 0.6701, 0.6784, 0.6871, 0.6959, 0.7051, 0.7146, 0.7247, 0.7349};
+double yValues[21] = { 0.5503, 0.5930, 0.5988, 0.6061, 0.6146, 0.6205, 0.6243, 0.6273, 0.6299, 0.6328, 0.6365, 0.6420, 0.6524, 0.6601, 0.6683, 0.6768, 0.6855, 0.6945, 0.7039, 0.7138, 0.7239};
 
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
@@ -317,17 +319,7 @@ void setup() {
   //SafeString::setOutput(Serial);
 
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_35,0);  // initialize ESP wakeup on button 1 activation
-
-  //xTaskCreatePinnedToCore(
-    //Task2code, /* Function to implement the task */
-    //"Task2", /* Name of the task */
-    //10000,  /* Stack size in words */
-    //NULL,  /* Task input parameter */
-    //0,  /* Priority of the task */
-    //&Task2,  /* Task handle. */
-    //0); /* Core where the task should run */
-    //delay(500);
-  
+   
   /*////// Get the stored values from last re-initialisation /////*/
   
   Net_kWh = EEPROM.readFloat(0);
@@ -669,10 +661,8 @@ void read_data(){
   
     EstFull_Ah = 100 * Net_Ah / UsedSoC;
   
-    CellVdiff = MAXcellv - MINcellv;
+    CellVdiff = MAXcellv - MINcellv;    
     
-    EstFull_kWh = 100 * Net_kWh / UsedSoC;
-
     if(PrevSoC != SoC){  // perform "used_kWh" and "left_kWh" when SoC changes
       if(InitRst){  // On Trip reset, initial kWh calculation
         Serial.print("1st Reset");
@@ -742,7 +732,8 @@ void read_data(){
     else{
       degrad_ratio = old_lost;
     }
-    EstFull_kWh = (356 * 180) / 1000 * degrad_ratio;
+    EstFull_kWh = full_kwh * degrad_ratio;full_kwh;
+    //EstFull_kWh = (356 * 180) / 1000 * degrad_ratio;
     EstLeft_kWh = left_kwh * degrad_ratio;
       
     RangeCalc();
@@ -1120,6 +1111,7 @@ void ResetCurrTrip(){ // when the car is turned On, current trip values are rese
         used_kwh = calc_kwh(SoC, InitSoC) + kWh_corr;
         left_kwh = calc_kwh(0, SoC) - kWh_corr;
         PrevSoC = SoC;
+        full_kwh = calc_kwh(0, 100);
         ResetOn = false;
         DrawBackground = true;
   }

@@ -1,3 +1,4 @@
+
 /*  KonaEvObd for Hyundai Kona EV + OBD Vgate iCar Pro BT4.0 
  *  Version: v4.01
   *   
@@ -98,7 +99,10 @@ float BmsSoC;
 float Max_Pwr;
 float Max_Reg;
 float SoC;
-float SOH;  
+float SOH;
+float Deter_Min;
+int MinDetCh;
+int MaxDetCh;  
 float Heater;
 float COOLtemp;
 float OUTDOORtemp;
@@ -179,6 +183,7 @@ bool SetupOn = false;
 bool StartWifi = true;
 bool initscan = false;
 bool InitRst = false;
+bool TrigRst = false;
 bool kWh_update = false;
 bool corr_update = false;
 bool ESP_on = false;
@@ -213,7 +218,7 @@ int nbr_decimal4;
 const int numValues = 21;
 double xValues[21] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
 //double yValues[21] = { 0.5587, 0.6021, 0.6079, 0.6153, 0.6239, 0.6299, 0.6338, 0.6368, 0.6395, 0.6424, 0.6462, 0.6518, 0.6624, 0.6701, 0.6784, 0.6871, 0.6959, 0.7051, 0.7146, 0.7247, 0.7349};
-double yValues[21] = { 0.5503, 0.5930, 0.5988, 0.6061, 0.6146, 0.6205, 0.6243, 0.6273, 0.6299, 0.6328, 0.6365, 0.6420, 0.6524, 0.6601, 0.6683, 0.6768, 0.6855, 0.6945, 0.7039, 0.7138, 0.7239};
+double yValues[21] = { 0.5487, 0.5921, 0.5979, 0.6053, 0.6139, 0.6199, 0.6238, 0.6268, 0.6295, 0.6324, 0.6362, 0.6418, 0.6524, 0.6601, 0.6684, 0.6771, 0.6859, 0.6951, 0.7046, 0.7147, 0.7249};
 //double yValues[21] = { 0.5472, 0.5897, 0.5954, 0.6027, 0.6111, 0.6170, 0.6208, 0.6237, 0.6263, 0.6293, 0.6329, 0.6384, 0.6488, 0.6564, 0.6645, 0.6730, 0.6816, 0.6906, 0.6999, 0.7098, 0.7198};
 
 unsigned long ESPinitTimer = 0;
@@ -440,7 +445,7 @@ int convertToInt(char* dataFrame, size_t startByte, size_t numberBytes) {
 //------------------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------------------
-//         Data retreve from OBD2 and extract values of it                               
+//         Data retreived from OBD2 and extract values of it                               
 //------------------------------------------------------------------------------------------
 
 void read_data(){
@@ -514,7 +519,10 @@ void read_data(){
           Max_Pwr = convertToInt(results.frames[3], 2, 2) * 0.01;    
           Max_Reg = (((convertToInt(results.frames[2], 7, 1)) << 8) + convertToInt(results.frames[3], 1, 1)) * 0.01;
           SoC = convertToInt(results.frames[5], 1, 1) * 0.5;
-          SOH = convertToInt(results.frames[4], 2, 2) * 0.1;  
+          SOH = convertToInt(results.frames[4], 2, 2) * 0.1;
+          MaxDetCh = convertToInt(results.frames[4], 4, 1);
+          MinDetCh = convertToInt(results.frames[4], 7, 1);
+          Deter_Min = convertToInt(results.frames[4], 5, 2) * 0.1;  
           int HeaterRaw = convertToInt(results.frames[3], 7, 1);
           if (HeaterRaw > 127){ //conversition for negative value
              Heater = -1 * (256 - HeaterRaw);
@@ -668,6 +676,7 @@ void read_data(){
       if(InitRst){  // On Trip reset, initial kWh calculation
         Serial.print("1st Reset");
         reset_trip();
+        TrigRst = true;
         kWh_corr = 0;
         PrevSoC = SoC;
         Prev_kWh = Net_kWh;
@@ -678,9 +687,10 @@ void read_data(){
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
         // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed) or if SoC changed from 100 to 99 (did not go through 99.5)
-        if(((Net_kWh < 0.3) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5))){ 
+        if(((Net_kWh < 0.3) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
           Serial.print("Net_kWh= ");Serial.println(Net_kWh);
           Serial.print("2nd Reset");
+          TrigRst = false;
           reset_trip();
           kWh_corr = 0;
           used_kwh = calc_kwh(SoC, InitSoC);
@@ -851,7 +861,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Est_range","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -889,7 +899,7 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[33] = degrad_ratio;
       sensor_Values[34] = EstLeft_kWh;
       sensor_Values[35] = kWh_100km;
-      sensor_Values[36] = Est_range;
+      sensor_Values[36] = Deter_Min;
       sensor_Values[37] = TireFL_P;
       sensor_Values[38] = TireFR_P;
       sensor_Values[39] = TireRL_P;
@@ -993,9 +1003,8 @@ void ButtonLoop() {
         if (millis() - InitMillis >= Longinterval){
           Serial.println("Button Long press");        
           if (screenNbr == 0){          
-            InitRst = true;
-            PrevSoC = 0;
-            //initscan = true;          
+            InitRst = true;            
+            PrevSoC = 0;                      
             return;
           }
         }
@@ -1608,54 +1617,14 @@ void page5(){
 /*///////////////// Display Page 6 //////////////////////*/
 void page6(){
                  
-        strcpy(title1,"Trip_kWh");
-        strcpy(title2,"TripOdo");
-        strcpy(title3,"TripSoC");
-        strcpy(title4,"AuxBattSoC");        
-        value1_float = CurrNet_kWh;
-        value2_float = CurrTripOdo;
-        value3_float = CurrUsedSoC;
-        value4_float = AuxBattSoC;
-        if(value1_float >= 100){
-          nbr_decimal1 = 0;
-        }
-        else{
-          nbr_decimal1 = 1;
-        }
-        if(value2_float >= 100){
-          nbr_decimal2 = 0;
-        }
-        else{
-          nbr_decimal2 = 1;
-        }
-        if(value3_float >= 100){
-          nbr_decimal3 = 0;
-        }
-        else{
-          nbr_decimal3 = 1;
-        }
-        if(value4_float >= 100){
-          nbr_decimal4 = 0;
-        }
-        else{
-          nbr_decimal4 = 1;
-        }    
-
-        DisplayPage();            
-}
-/*///////////////// End of Display Page 6 //////////////////////*/
-
-/*///////////////// Display Page 7 //////////////////////*/
-void page7(){
-        
         strcpy(title1,"BmsSoC");
-        strcpy(title2,"MAXcellv");
-        strcpy(title3,"CellVdiff");
-        strcpy(title4,"SOH");        
+        strcpy(title2,"CellVdiff");
+        strcpy(title3,"MAXcellv");
+        strcpy(title4,"AuxBattSoC");               
         value1_float = BmsSoC;
-        value2_float = MAXcellv;
-        value3_float = CellVdiff;
-        value4_float = SOH;
+        value2_float = CellVdiff;
+        value3_float = MAXcellv;
+        value4_float = AuxBattSoC;
         if(value1_float >= 100){
           nbr_decimal1 = 0;
         }
@@ -1673,6 +1642,46 @@ void page7(){
         }
         else{
           nbr_decimal3 = 2;
+        }
+        if(value4_float >= 100){
+          nbr_decimal4 = 0;
+        }
+        else{
+          nbr_decimal4 = 1;
+        }    
+
+        DisplayPage();            
+}
+/*///////////////// End of Display Page 6 //////////////////////*/
+
+/*///////////////// Display Page 7 //////////////////////*/
+void page7(){
+        
+        strcpy(title1,"MinDetCh");
+        strcpy(title2,"Deter_Min");
+        strcpy(title3,"MaxDetCh");
+        strcpy(title4,"SOH");        
+        value1_float = MinDetCh;
+        value2_float = Deter_Min;
+        value3_float = MaxDetCh;
+        value4_float = SOH;
+        if(value1_float >= 100){
+          nbr_decimal1 = 0;
+        }
+        else{
+          nbr_decimal1 = 0;
+        }
+        if(value2_float >= 100){
+          nbr_decimal2 = 0;
+        }
+        else{
+          nbr_decimal2 = 2;
+        }
+        if(value3_float >= 100){
+          nbr_decimal3 = 0;
+        }
+        else{
+          nbr_decimal3 = 0;
         }
         if(value4_float >= 100){
           nbr_decimal4 = 0;

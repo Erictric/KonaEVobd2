@@ -57,13 +57,6 @@ TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom display library
 Button bouton(BUTTON_PIN);
 Button bouton2(BUTTON_2_PIN);
 
-#define BATTtemp_Warning 40.0       // RED color above this value (Celsius)
-#define SoCpercent_Warning 10       // RED color below this value (Percent)
-#define AUXSoCpercent_Warning 60    // RED color below this value (Percent)
-#define BATTv_LOW_Warning 320       // Main Battery Low Voltage warning (Volts)
-#define BATTv_HIGH_Warning 410      // Main Battery High Voltage warning (Volts)
-#define AUXBATTv_LOW_Warning 11.8   // Main Battery Low Voltage warning (Volts)
-#define AUXBATTv_HIGH_Warning 14.5  // Main Battery High Voltage warning (Volts)
 #define pagenumbers 7               // number of pages to display
 
 int ledBacklight = 100; // Initial TFT backlight intensity on a scale of 0 to 255. Initial value is 80.
@@ -90,6 +83,8 @@ float BATTv;
 float BATTc;
 float MAXcellv;
 float MINcellv;
+int MAXcellvNb;
+int MINcellvNb;
 float CellVdiff;
 float CEC;
 float CED;
@@ -101,8 +96,8 @@ float Max_Reg;
 float SoC;
 float SOH;
 float Deter_Min;
-int MinDetCh;
-int MaxDetCh;  
+int MinDetNb;
+int MaxDetNb;  
 float Heater;
 float COOLtemp;
 float OUTDOORtemp;
@@ -229,7 +224,7 @@ unsigned long ESPTimerInterval = 120000;
 bool send_enabled = false;
 bool send_data = false;
 bool data_sent = false;
-int nbParam = 45;    //number of parameters to send to Google Sheet
+int nbParam = 49;    //number of parameters to send to Google Sheet
 unsigned long sendInterval = 5000;
 unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
@@ -497,7 +492,9 @@ void read_data(){
           StatusWord = convertToInt(results.frames[7], 6, 1); // Extract byte that contain BMS status bits
           BMS_ign = bitRead(StatusWord,2);
           MAXcellv = convertToInt(results.frames[3], 7, 1) * 0.02;
-          MINcellv = convertToInt(results.frames[4], 2, 1) * 0.02;          
+          MAXcellvNb = convertToInt(results.frames[4], 1, 1);
+          MINcellv = convertToInt(results.frames[4], 2, 1) * 0.02;
+          MINcellvNb = convertToInt(results.frames[4], 3, 1);          
           OPtimemins = convertToInt(results.frames[7], 2, 4) * 0.01666666667;
           OPtimehours = OPtimemins * 0.01666666667;
           }
@@ -520,8 +517,8 @@ void read_data(){
           Max_Reg = (((convertToInt(results.frames[2], 7, 1)) << 8) + convertToInt(results.frames[3], 1, 1)) * 0.01;
           SoC = convertToInt(results.frames[5], 1, 1) * 0.5;
           SOH = convertToInt(results.frames[4], 2, 2) * 0.1;
-          MaxDetCh = convertToInt(results.frames[4], 4, 1);
-          MinDetCh = convertToInt(results.frames[4], 7, 1);
+          MaxDetNb = convertToInt(results.frames[4], 4, 1);
+          MinDetNb = convertToInt(results.frames[4], 7, 1);
           Deter_Min = convertToInt(results.frames[4], 5, 2) * 0.1;  
           int HeaterRaw = convertToInt(results.frames[3], 7, 1);
           if (HeaterRaw > 127){ //conversition for negative value
@@ -861,7 +858,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","MaxDetNb","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -876,38 +873,42 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[10] = BmsSoC;
       sensor_Values[11] = MAXcellv;
       sensor_Values[12] = MINcellv;
-      sensor_Values[13] = BATTv;
-      sensor_Values[14] = BATTc;
-      sensor_Values[15] = Speed;
-      sensor_Values[16] = Odometer;
-      sensor_Values[17] = CEC;
-      sensor_Values[18] = CED;
-      sensor_Values[19] = CDC;
-      sensor_Values[20] = CCC;
-      sensor_Values[21] = SOH;  
-      sensor_Values[22] = OPtimemins;
-      sensor_Values[23] = OUTDOORtemp;
-      sensor_Values[24] = INDOORtemp;
-      sensor_Values[25] = kWh_update;
-      sensor_Values[26] = corr_update;
-      sensor_Values[27] = used_kwh;
-      sensor_Values[28] = left_kwh;
-      sensor_Values[29] = TripOPtime;
-      sensor_Values[30] = CurrOPtime;      
-      sensor_Values[31] = MeanSpeed;
-      sensor_Values[32] = TripkWh_100km;
-      sensor_Values[33] = degrad_ratio;
-      sensor_Values[34] = EstLeft_kWh;
-      sensor_Values[35] = kWh_100km;
-      sensor_Values[36] = Deter_Min;
-      sensor_Values[37] = TireFL_P;
-      sensor_Values[38] = TireFR_P;
-      sensor_Values[39] = TireRL_P;
-      sensor_Values[40] = TireRR_P;
-      sensor_Values[41] = TireFL_T;
-      sensor_Values[42] = TireFR_T;
-      sensor_Values[43] = TireRL_T;
-      sensor_Values[44] = TireRR_T;
+      sensor_Values[13] = MAXcellvNb;
+      sensor_Values[14] = MINcellvNb;
+      sensor_Values[15] = BATTv;
+      sensor_Values[16] = BATTc;
+      sensor_Values[17] = Speed;
+      sensor_Values[18] = Odometer;
+      sensor_Values[19] = CEC;
+      sensor_Values[20] = CED;
+      sensor_Values[21] = CDC;
+      sensor_Values[22] = CCC;
+      sensor_Values[23] = SOH;
+      sensor_Values[24] = MaxDetNb;        
+      sensor_Values[25] = OPtimemins;
+      sensor_Values[26] = OUTDOORtemp;
+      sensor_Values[27] = INDOORtemp;
+      sensor_Values[28] = kWh_update;
+      sensor_Values[29] = corr_update;
+      sensor_Values[30] = used_kwh;
+      sensor_Values[31] = left_kwh;
+      sensor_Values[32] = TripOPtime;
+      sensor_Values[33] = CurrOPtime;      
+      sensor_Values[34] = MeanSpeed;
+      sensor_Values[35] = TripkWh_100km;
+      sensor_Values[36] = degrad_ratio;
+      sensor_Values[37] = EstLeft_kWh;
+      sensor_Values[38] = kWh_100km;
+      sensor_Values[39] = Deter_Min;
+      sensor_Values[40] = MinDetNb;
+      sensor_Values[41] = TireFL_P;
+      sensor_Values[42] = TireFR_P;
+      sensor_Values[43] = TireRL_P;
+      sensor_Values[44] = TireRR_P;
+      sensor_Values[45] = TireFL_T;
+      sensor_Values[46] = TireFR_T;
+      sensor_Values[47] = TireRL_T;
+      sensor_Values[48] = TireRR_T;
           
       
       String headerNames = "";
@@ -1657,13 +1658,13 @@ void page6(){
 /*///////////////// Display Page 7 //////////////////////*/
 void page7(){
         
-        strcpy(title1,"MinDetCh");
+        strcpy(title1,"MinDetNb");
         strcpy(title2,"Deter_Min");
-        strcpy(title3,"MaxDetCh");
+        strcpy(title3,"MaxDetNb");
         strcpy(title4,"SOH");        
-        value1_float = MinDetCh;
+        value1_float = MinDetNb;
         value2_float = Deter_Min;
-        value3_float = MaxDetCh;
+        value3_float = MaxDetNb;
         value4_float = SOH;
         if(value1_float >= 100){
           nbr_decimal1 = 0;

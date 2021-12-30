@@ -173,7 +173,7 @@ float TripkWh_100km;
 float kWh_100km;
 float Est_range;
 bool DriveOn = false;
-bool winter = false;
+bool StayOn = false;
 bool SetupOn = false;
 bool StartWifi = true;
 bool initscan = false;
@@ -333,7 +333,7 @@ void setup() {
   InitCCC = EEPROM.readFloat(28);
   old_lost = EEPROM.readFloat(32);
   old_kWh_100km = EEPROM.readFloat(36);
-  winter = EEPROM.readBool(40);
+  StayOn = EEPROM.readBool(40);
   PrevOPtimemins = EEPROM.readFloat(44);
   kWh_corr = EEPROM.readFloat(48);
         
@@ -1034,22 +1034,23 @@ void ButtonLoop() {
               SetupOn = true;
             }
             else{
-              EEPROM.writeBool(40, winter);
+              EEPROM.writeBool(40, StayOn);
               EEPROM.commit();
               SetupOn = false;
+              DrawBackground = true;
             }
           }            
         else{
             //Serial.println("Button2 short press");       
             if(SetupOn){
-                if (winter){                  
-                  winter = false;
-                  Serial.println("winter: ");Serial.println(winter);
+                if (StayOn){                  
+                  StayOn = false;
+                  Serial.println("StayOn: ");Serial.println(StayOn);
                   
                 }
                 else{
-                  winter = true;
-                  Serial.println("winter: ");Serial.println(winter);                   
+                  StayOn = true;
+                  Serial.println("StayOn: ");Serial.println(StayOn);                   
                 }
             }
             else{
@@ -1163,7 +1164,7 @@ void save_lost(char selector){
         }
       }
 
-void stop_esp(){
+void stop_esp(){       
         ESP_on = false; 
         if (DriveOn){                
           EEPROM.writeFloat(32, degrad_ratio);
@@ -1187,7 +1188,8 @@ void stop_esp(){
         delay(1500);
         esp_deep_sleep_start();
         //tft.fillScreen(TFT_BLACK);            
-      }
+        
+}
 
 void start_esp(){
         tft.init(); // display initialisation
@@ -1212,8 +1214,8 @@ void SetupMode(){
     tft.setTextColor(TFT_WHITE,TFT_BLUE);
     tft.setTextPadding(135);
     //tft.drawRect(0, 0, 135, 59, TFT_BLUE); // Blue rectangle
-    tft.drawString("Winter Mode", tft.width() / 2, textLvl1, 1);
-    if (winter){
+    tft.drawString("Stay On", tft.width() / 2, textLvl1, 1);
+    if (StayOn){
         tft.setTextColor(TFT_BLACK,TFT_GREEN); 
         tft.fillRect(1, 20, 134, 118, TFT_GREEN);    
         tft.setTextPadding(130);
@@ -1717,7 +1719,7 @@ void loop() {
   ESPTimer = millis();
   if (ESPTimer - ESPinitTimer >= ESPTimerInterval) {
       ESPinitTimer = ESPTimer;     
-    if (!BMS_ign && (Power >= 0)){
+    if (!BMS_ign && (Power >= 0) && !StayOn){
       stop_esp();      
     }
   }
@@ -1747,7 +1749,7 @@ void loop() {
         }
       }
   /*/////// Stop ESP /////////////////*/               
-  if(!BMS_ign && ESP_on){    
+  if(!BMS_ign && ESP_on && !StayOn){    
     stop_esp();    
   }  
   

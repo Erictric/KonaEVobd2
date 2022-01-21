@@ -25,7 +25,6 @@
 #define DEBUG_PORT Serial
 
 TaskHandle_t Task1;
-TaskHandle_t Task2;
 
 TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom display library
 
@@ -212,9 +211,7 @@ int nbr_decimal4;
 /* variable for kWh/%SoC calculation: xValues = %SoC and yValues = kWh */ 
 const int numValues = 21;
 double xValues[21] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
-//double yValues[21] = { 0.5587, 0.6021, 0.6079, 0.6153, 0.6239, 0.6299, 0.6338, 0.6368, 0.6395, 0.6424, 0.6462, 0.6518, 0.6624, 0.6701, 0.6784, 0.6871, 0.6959, 0.7051, 0.7146, 0.7247, 0.7349};
 double yValues[21] = { 0.5487, 0.5921, 0.5979, 0.6053, 0.6139, 0.6199, 0.6238, 0.6268, 0.6295, 0.6324, 0.6362, 0.6418, 0.6524, 0.6601, 0.6684, 0.6771, 0.6859, 0.6951, 0.7046, 0.7147, 0.7249};
-//double yValues[21] = { 0.5472, 0.5897, 0.5954, 0.6027, 0.6111, 0.6170, 0.6208, 0.6237, 0.6263, 0.6293, 0.6329, 0.6384, 0.6488, 0.6564, 0.6645, 0.6730, 0.6816, 0.6906, 0.6999, 0.7098, 0.7198};
 
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
@@ -230,19 +227,11 @@ unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
 bool sendIntervalOn = false;
 
-const char* resource = "/trigger/SendData/with/key/dqNCA93rEfn0CAeqkVRXvl";
+const char* resource = "/trigger/SendData/with/key/******************"; // Copy key from IFTTT applet
 
 // Maker Webhooks IFTTT
 const char* server = "maker.ifttt.com";
 
-/*////// Variables for Google Sheet data transfer ////////////*/
-const int httpsPort = 443;
-const char* fingerprint = "A0:92:D5:4F:FD:BB:96:90:40:7F:61:75:64:CD:BB:42:F7:15:4F:58";
-const char* host = "script.google.com";
-const char *GScriptId = "AKfycbyWlbpQIBM2NEVZOU1FQ8zpJ3hYuwJK-L4Qk81cnsUaEhHDN25hIBuhImjuRY3vJL9hyg";
-String url = String("/macros/s/") + GScriptId + "/exec?";
-String payload2 = "id=Sensor_1&SOC=67.00&Power=-6.47&BattMinT=8.00&BATTv=378.10&AuxBattSOC=86.00";
-String url2 = "https://script.google.com/macros/s/AKfycbyWlbpQIBM2NEVZOU1FQ8zpJ3hYuwJK-L4Qk81cnsUaEhHDN25hIBuhImjuRY3vJL9hyg/exec?id=Sensor_1&SOC=67.00&Power=-6.47&BattMinT=8.00&BATTv=378.10&AuxBattSOC=86.00";
 static bool flag = false;
 
 /*////// Variables for OBD data timing ////////////*/

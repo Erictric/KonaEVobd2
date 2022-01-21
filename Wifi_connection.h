@@ -7,10 +7,10 @@
 
 WiFiMulti wifiMulti;
 
-const char* ssid = "VIRGIN131";
-const char* password = "3D4F2F3311D5";
-const char* ssid2 = "SM-G950W2093";
-const char* password2 = "5311Fond";
+const char* ssid = "*********";
+const char* password = "**********";
+const char* ssid2 = "**********";
+const char* password2 = "**********";
 
 void ConnectWifi(TFT_eSPI& tft){
   Serial.print("Connecting to Wifi "); 

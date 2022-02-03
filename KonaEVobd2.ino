@@ -780,10 +780,10 @@ float UpdateNetEnergy(){
 float RangeCalc(){
   
   MeanSpeed = (CurrTripOdo / CurrOPtime) * 60;
-  TripkWh_100km = Net_kWh * 100 / TripOdo;
+  TripkWh_100km = Discharg * 100 / TripOdo;
     
   if (CurrTripOdo > 10 && !ResetOn){  
-    kWh_100km = CurrNet_kWh * 100 / CurrTripOdo;
+    kWh_100km = CurrTripDisc * 100 / CurrTripOdo;
   }
   else if (CurrTripOdo > 2 && !ResetOn){
     kWh_100km = (0.5 * (Net_kWh * 100 / TripOdo)) + (0.5 * old_kWh_100km);    

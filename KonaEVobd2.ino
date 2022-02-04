@@ -227,7 +227,7 @@ unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
 bool sendIntervalOn = false;
 
-const char* resource = "/trigger/SendData/with/key/******************"; // Copy key from IFTTT applet
+const char* resource = "/trigger/SendData/with/key/xxxxxxxxxxxxxx"; // Copy key from IFTTT applet
 
 // Maker Webhooks IFTTT
 const char* server = "maker.ifttt.com";
@@ -673,7 +673,7 @@ void read_data(){
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
         // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed) or if SoC changed from 100 to 99 (did not go through 99.5)
-        if(((Net_kWh < 0.3) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
+        if(((Net_kWh < 0.2) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
           Serial.print("Net_kWh= ");Serial.println(Net_kWh);
           Serial.print("2nd Reset");
           TrigRst = false;
@@ -780,10 +780,10 @@ float UpdateNetEnergy(){
 float RangeCalc(){
   
   MeanSpeed = (CurrTripOdo / CurrOPtime) * 60;
-  TripkWh_100km = Discharg * 100 / TripOdo;
+  TripkWh_100km = Net_kWh * 100 / TripOdo;
     
   if (CurrTripOdo > 10 && !ResetOn){  
-    kWh_100km = CurrTripDisc * 100 / CurrTripOdo;
+    kWh_100km = CurrNet_kWh * 100 / CurrTripOdo;
   }
   else if (CurrTripOdo > 2 && !ResetOn){
     kWh_100km = (0.5 * (Net_kWh * 100 / TripOdo)) + (0.5 * old_kWh_100km);    

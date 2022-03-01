@@ -7,10 +7,10 @@
 
 WiFiMulti wifiMulti;
 
-const char* ssid = "xxxxxxxxxx";             //replace network name here
-const char* password = "xxxxxxxxxx";      //replace network password
-const char* ssid2 = "xxxxxxxxxx";         //replace hotspot wifi name here
-const char* password2 = "xxxxxxxxxx";         //replace hotspot wifi password here
+const char* ssid = "VIRGIN131";
+const char* password = "3D4F2F3311D5";
+const char* ssid2 = "SM-G950W2093";
+const char* password2 = "5311Fond";
 
 void ConnectWifi(TFT_eSPI& tft){
   Serial.print("Connecting to Wifi "); 

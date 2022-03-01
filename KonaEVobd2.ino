@@ -227,7 +227,7 @@ unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
 bool sendIntervalOn = false;
 
-const char* resource = "/trigger/SendData/with/key/xxxxxxxxxxxxxx"; // Copy key from IFTTT applet
+const char* resource = "/trigger/SendData/with/key/dqNCA93rEfn0CAeqkVRXvl"; // Copy key from IFTTT applet
 
 // Maker Webhooks IFTTT
 const char* server = "maker.ifttt.com";

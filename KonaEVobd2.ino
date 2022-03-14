@@ -16,8 +16,6 @@
 #include "BT_communication.h"
 #include "Wifi_connection.h"
 #include "FreeRTOS.h"
-#include "HTTPClient.h"
-#include "HTTPSRedirect.h"
 #include "WiFiClientSecure.h"
 #include "InterpolationLib.h"
 
@@ -132,6 +130,8 @@ float CurrNet_kWh;
 float CurrUsedSoC;
 float CurrTripDisc;
 float CurrTripReg;
+float CurrInitAccEnergy;
+float CurrAccEnergy;
 float Prev_kWh = 0;
 float Net_kWh = 0;
 float UsedSoC = 0;
@@ -156,6 +156,13 @@ float LastSoC = 0;
 double integral; // variable to calculate energy between to SoC values
 double interval; // variable to calculate energy between to SoC values
 float return_kwh; // variable to calculate energy between to SoC values
+double init_pwr_timer = 0.0;
+double pwr_interval = 0.0;
+double int_pwr = 0.0;
+double acc_energy = 0.0;
+float prev_power = 0.0;
+int pwr_changed = 0;
+int loop_count = 0;
 float full_kwh;
 float EstFull_kWh;
 float EstFull_Ah;
@@ -221,7 +228,7 @@ unsigned long ESPTimerInterval = 120000;
 bool send_enabled = false;
 bool send_data = false;
 bool data_sent = false;
-int nbParam = 49;    //number of parameters to send to Google Sheet
+int nbParam = 52;    //number of parameters to send to Google Sheet
 unsigned long sendInterval = 5000;
 unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
@@ -325,6 +332,7 @@ void setup() {
   StayOn = EEPROM.readBool(40);
   PrevOPtimemins = EEPROM.readFloat(44);
   kWh_corr = EEPROM.readFloat(48);
+  acc_energy = EEPROM.readFloat(52);
         
 /*/////////////////////////////////////////////////////////////////*/
 /*                    CONNECTION TO OBDII                          */
@@ -359,7 +367,9 @@ void setup() {
     Serial.println("Task started");
     delay(500);
 
-  tft.fillScreen(TFT_BLACK);  
+  tft.fillScreen(TFT_BLACK);
+
+  init_pwr_timer = millis()/1000;  
   
 }   
 
@@ -437,9 +447,9 @@ void read_data(){
   pid_counter++; 
     
   // read in rawData via ODBII
-  switch (pid_counter){
+  //switch (pid_counter){
         
-    case 1:
+    //case 1:
         
         myELM327.sendCommand("AT SH 7E4");       // Set Header for BMS
         
@@ -491,9 +501,11 @@ void read_data(){
             ESP_on = true;
           }          
           UpdateNetEnergy();
-          break;
-
-    case 2:
+          pwr_changed += 1;
+          //break;
+          
+  switch (pid_counter){
+    case 1:
   
         myELM327.sendCommand("AT SH 7E4");       // Set Header for BMS
         
@@ -520,7 +532,7 @@ void read_data(){
         }
         break;
 
-    case 3:
+    case 2:
   
         myELM327.sendCommand("AT SH 7E4");       // Set Header for BMS
         
@@ -539,7 +551,7 @@ void read_data(){
         }
         break;
         
-     case 4: 
+     case 3: 
         myELM327.sendCommand("AT SH 7E2");     // Set Header for Vehicle Control Unit
         
         if (myELM327.queryPID("2101")) {      // Service and Message PID
@@ -562,7 +574,7 @@ void read_data(){
           }
         break;
 
-     case 5: 
+     case 4: 
         myELM327.sendCommand("AT SH 7E2");     // Set Header for Vehicle Control Unit
         if (myELM327.queryPID("2102")) {      // Service and Message PID
           char* payload = myELM327.payload;
@@ -582,7 +594,7 @@ void read_data(){
           }
         break;
         
-     case 6: 
+     case 5: 
         myELM327.sendCommand("AT SH 7C6");       // Set Header for CLU Cluster Module
         if (myELM327.queryPID("22B002")) {      // Service and Message PID
           char* payload = myELM327.payload;
@@ -593,7 +605,7 @@ void read_data(){
           }
         break;
 
-     case 7:  
+     case 6:  
        myELM327.sendCommand("AT SH 7B3");       //Set Header Aircon 
         if (myELM327.queryPID("220100")) {      // Service and Message PID
           char* payload = myELM327.payload;
@@ -605,7 +617,7 @@ void read_data(){
           }        
         break;
 
-     case 8:  
+     case 7:  
         myELM327.sendCommand("AT SH 7D4");       //Set Speed Header 
         if (myELM327.queryPID("220101")) {      // Service and Message PID
           char* payload = myELM327.payload;
@@ -616,7 +628,7 @@ void read_data(){
           } 
         break;
 
-      case 9:  
+      case 8:  
         myELM327.sendCommand("AT SH 7A0");       //Set BCM Header 
         if (myELM327.queryPID("22C00B")) {      // Service and Message PID
           char* payload = myELM327.payload;
@@ -640,6 +652,7 @@ void read_data(){
   /////// Miscellaneous calculations /////////   
     
   Power = (BATTv * BATTc) * 0.001;
+  Integrat_power();
 
   if(!ResetOn){     // On power On, wait for current trip values to be re-initialized before executing the next lines of code
     TripOdo = Odometer - InitOdo;
@@ -673,7 +686,8 @@ void read_data(){
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
         // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed) or if SoC changed from 100 to 99 (did not go through 99.5)
-        if(((Net_kWh < 0.2) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
+        // if(((Net_kWh < 0.2) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
+        if(((acc_energy < 0.3) & (PrevSoC > SoC)) | ((SoC > 98.5) & ((PrevSoC - SoC) > 0.5))){ 
           Serial.print("Net_kWh= ");Serial.println(Net_kWh);
           Serial.print("2nd Reset");
           TrigRst = false;
@@ -768,9 +782,33 @@ float UpdateNetEnergy(){
         RegenAh = CCC - InitCCC;
         Net_Ah = DischAh - RegenAh;
         
+        CurrAccEnergy = acc_energy - CurrInitAccEnergy;
         CurrTripDisc = CED - CurrInitCED;       
         CurrTripReg = CEC - CurrInitCEC;
         CurrNet_kWh = CurrTripDisc - CurrTripReg;        
+}
+
+//--------------------------------------------------------------------------------------------
+//                   Net Energy based on Power integration Function
+//--------------------------------------------------------------------------------------------
+ 
+/*//////Function to calculate Energy by power integration last reset //////////*/
+
+float Integrat_power(){        
+  pwr_interval = (millis() - init_pwr_timer) / 1000;
+  int_pwr = Power * pwr_interval / 3600;
+  acc_energy += int_pwr;
+  init_pwr_timer = millis();
+  
+  Serial.print("pwr_interval: "); 
+  Serial.println(pwr_interval);
+  Serial.print("int_pwr: "); 
+  Serial.println(int_pwr);
+  Serial.print("init_pwr_timer: "); 
+  Serial.println(init_pwr_timer);
+  Serial.print("acc_energy: "); 
+  Serial.println(acc_energy);
+                
 }
 
 //--------------------------------------------------------------------------------------------
@@ -782,11 +820,13 @@ float RangeCalc(){
   MeanSpeed = (CurrTripOdo / CurrOPtime) * 60;
   TripkWh_100km = Net_kWh * 100 / TripOdo;
     
-  if (CurrTripOdo > 10 && !ResetOn){  
-    kWh_100km = CurrNet_kWh * 100 / CurrTripOdo;
+  if (CurrTripOdo >= 5 && !ResetOn){  
+    //kWh_100km = CurrNet_kWh * 100 / CurrTripOdo;
+    kWh_100km = CurrAccEnergy * 100 / CurrTripOdo;
   }
-  else if (CurrTripOdo > 2 && !ResetOn){
-    kWh_100km = (0.5 * (Net_kWh * 100 / TripOdo)) + (0.5 * old_kWh_100km);    
+  else if (CurrTripOdo >=
+  2 && !ResetOn){
+    kWh_100km = (0.5 * (acc_energy * 100 / TripOdo)) + (0.5 * old_kWh_100km);    
   }
   else{
     kWh_100km = old_kWh_100km;
@@ -847,7 +887,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","MaxDetNb","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","MaxDetNb","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","pwr_changed","loop_count"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -898,7 +938,9 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[46] = TireFR_T;
       sensor_Values[47] = TireRL_T;
       sensor_Values[48] = TireRR_T;
-          
+      sensor_Values[49] = acc_energy;
+      sensor_Values[50] = pwr_changed;
+      sensor_Values[51] = loop_count;    
       
       String headerNames = "";
       String payload ="";
@@ -966,6 +1008,8 @@ void makeIFTTTRequest(void * pvParameters){
       client.stop();
 
       send_data = false;
+      pwr_changed = 0;
+      loop_count = 0;
       
       if(kWh_update){ //add condition so "kWh_corr" is not trigger before a cycle after a "kWh_update"
         Prev_kWh = Net_kWh;        
@@ -1083,6 +1127,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
     EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
     EEPROM.writeFloat(44, PrevOPtimemins);    //save initial time to Flash memory
     EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory       
+    EEPROM.writeFloat(52, 0);
     EEPROM.commit();
     Serial.println("Values saved to EEPROM");
     CurrInitCED = CED;
@@ -1092,6 +1137,10 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
     CurrTripReg = 0;
     CurrTripDisc = 0;    
     CurrTimeInit = OPtimemins;
+    init_pwr_timer = millis();
+    acc_energy = 0;
+    CurrInitAccEnergy = 0;
+    
 }
 
 /*////////////// Current Trip Reset ///////////////// */
@@ -1100,6 +1149,7 @@ void ResetCurrTrip(){ // when the car is turned On, current trip values are rese
   
     if (
       ResetOn && (SoC > 1) && (Odometer > 1) && (CED > 1) && (CEC > 1)){ // ResetOn condition might be enough, might need to update code...        
+        CurrInitAccEnergy = acc_energy;
         CurrInitCED = CED;
         CurrInitCEC = CEC;
         CurrInitOdo = Odometer;
@@ -1149,6 +1199,7 @@ void save_lost(char selector){
           EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
+          EEPROM.writeFloat(52, acc_energy);
           EEPROM.commit();
         }
       }
@@ -1161,6 +1212,7 @@ void stop_esp(){
           EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
+          EEPROM.writeFloat(52, acc_energy);
           EEPROM.commit();
         }
         tft.setTextFont(1);
@@ -1694,6 +1746,7 @@ void page7(){
 
 void loop() {
   
+  loop_count += 1;
   ButtonLoop();
 
   currentTimer = millis();  

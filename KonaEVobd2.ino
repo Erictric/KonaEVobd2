@@ -160,6 +160,10 @@ double init_pwr_timer = 0.0;
 double pwr_interval = 0.0;
 double int_pwr = 0.0;
 double acc_energy = 0.0;
+double speed_interval = 0.0;
+double init_speed_timer = 0.0;
+double int_speed = 0.0;
+double distance = 0.0;
 float prev_power = 0.0;
 int pwr_changed = 0;
 int loop_count = 0;
@@ -625,7 +629,8 @@ void read_data(){
 
           processPayload(payload, payloadLen, results);
           Speed = (((convertToInt(results.frames[1], 7, 1)) << 8) + convertToInt(results.frames[2], 1, 1)) * 0.1;
-          } 
+          }
+        Integrat_speed();  
         break;
 
       case 8:  
@@ -798,34 +803,36 @@ float Integrat_power(){
   pwr_interval = (millis() - init_pwr_timer) / 1000;
   int_pwr = Power * pwr_interval / 3600;
   acc_energy += int_pwr;
-  init_pwr_timer = millis();
-  
-  Serial.print("pwr_interval: "); 
-  Serial.println(pwr_interval);
-  Serial.print("int_pwr: "); 
-  Serial.println(int_pwr);
-  Serial.print("init_pwr_timer: "); 
-  Serial.println(init_pwr_timer);
-  Serial.print("acc_energy: "); 
-  Serial.println(acc_energy);
-                
+  init_pwr_timer = millis(); 
+}
+
+//--------------------------------------------------------------------------------------------
+//                   Distance based on Speed integration Function
+//--------------------------------------------------------------------------------------------
+ 
+/*//////Function to calculate Energy by power integration last reset //////////*/
+
+float Integrat_speed(){
+  speed_interval = (millis() - init_speed_timer) / 1000;
+  int_speed = Speed * speed_interval / 3600;
+  distance += int_speed;
+  init_speed_timer = millis();
 }
 
 //--------------------------------------------------------------------------------------------
 //                   Kilometer Range Calculation Function
 //--------------------------------------------------------------------------------------------
 
-float RangeCalc(){
+float RangeCalc(){  
   
   MeanSpeed = (CurrTripOdo / CurrOPtime) * 60;
   TripkWh_100km = Net_kWh * 100 / TripOdo;
     
-  if (CurrTripOdo >= 5 && !ResetOn){  
+  if (distance >= 5 && !ResetOn){  
     //kWh_100km = CurrNet_kWh * 100 / CurrTripOdo;
-    kWh_100km = CurrAccEnergy * 100 / CurrTripOdo;
+    kWh_100km = CurrAccEnergy * 100 / distance;
   }
-  else if (CurrTripOdo >=
-  2 && !ResetOn){
+  else if (distance >= 2 && !ResetOn){
     kWh_100km = (0.5 * (acc_energy * 100 / TripOdo)) + (0.5 * old_kWh_100km);    
   }
   else{
@@ -887,7 +894,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","MaxDetNb","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","pwr_changed","loop_count"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","kWh_update","corr_update","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","MeanSpeed","TripkWh_100km","degrad_ratio","EstLeft_kWh","Energ_100km","Deter_Min","MaxDetNb","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","pwr_changed","distance"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -940,7 +947,7 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[48] = TireRR_T;
       sensor_Values[49] = acc_energy;
       sensor_Values[50] = pwr_changed;
-      sensor_Values[51] = loop_count;    
+      sensor_Values[51] = distance;    
       
       String headerNames = "";
       String payload ="";

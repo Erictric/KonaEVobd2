@@ -864,9 +864,9 @@ float RangeCalc(){
 
   if ((prev_odo != CurrTripOdo) && (distance < 0.9)){
     if (TripOdo < 2){
-       InitOdo = Odometer + (1 - distance);   // correct initial odometer value using speed integration if odometer changes within 0.9km
+       InitOdo = Odometer + distance;   // correct initial odometer value using speed integration if odometer changes within 0.9km
     }
-    CurrInitOdo = Odometer + (1 - distance);    
+    CurrInitOdo = Odometer + distance;    
     prev_dist = distance;    
     prev_odo = CurrTripOdo;    
     N_km_energy(Net_kWh);        

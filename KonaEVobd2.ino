@@ -666,7 +666,7 @@ void read_data(){
   Integrat_power();
 
   if(!ResetOn){     // On power On, wait for current trip values to be re-initialized before executing the next lines of code
-    TripOdo = Odometer - InitOdo;
+    TripOdo = (Odometer + interval_dist) - InitOdo;
     
     CurrTripOdo = Odometer - CurrInitOdo;    
     
@@ -763,11 +763,15 @@ void read_data(){
     RangeCalc();   
   }  
         
-  if((used_kwh >= 5) && (SpdSelect == 'D')){
-    degrad_ratio = Net_kWh / used_kwh;      
+  if((used_kwh >= 5) && (SpdSelect == 'D')){ // Wait till 5 kWh has been used to start calculating ratio to have a better accuracy
+    degrad_ratio = Net_kWh / used_kwh;
+    old_lost = degrad_ratio;
   }
   else{
     degrad_ratio = old_lost;
+    if(degrad_ratio > 1.2){ // if a bad value got saved previously, initial ratio to 1
+      degrad_ratio = 1;
+    }
   }
   
   save_lost(SpdSelect);
@@ -856,21 +860,21 @@ float Integrat_speed(){
 //                   Kilometer Range Calculation Function
 //--------------------------------------------------------------------------------------------
 
-float RangeCalc(){  
-  
-  MeanSpeed = (CurrTripOdo / CurrOPtime) * 60;
-  TripkWh_100km = Net_kWh * 100 / TripOdo;
+float RangeCalc(){ 
 
-  if ((prev_odo != CurrTripOdo) && (distance < 0.8)){    
-    CurrInitOdo = Odometer - distance;    
+  if ((prev_odo != CurrTripOdo) && (distance < 0.9)){
+    if (TripOdo < 2){
+       InitOdo = Odometer + (1 - distance);   // correct initial odometer value using speed integration if odometer changes within 0.9km
+    }
+    CurrInitOdo = Odometer + (1 - distance);    
     prev_dist = distance;    
     prev_odo = CurrTripOdo;    
-    N_km_energy(acc_energy);        
+    N_km_energy(Net_kWh);        
   }
   else if(prev_odo != CurrTripOdo){
     prev_dist = distance;    
     prev_odo = CurrTripOdo;
-    N_km_energy(acc_energy);
+    N_km_energy(Net_kWh);
   }
   interval_dist = distance - prev_dist;
   Trip_dist = CurrTripOdo + interval_dist;
@@ -1197,7 +1201,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
     EEPROM.writeFloat(24, InitCDC);    //save initial Calculated CED to Flash memory
     EEPROM.writeFloat(28, InitCCC);    //save initial Calculated CED to Flash memory
     EEPROM.writeFloat(32, degrad_ratio);    //save actual batt energy lost in Flash memory
-    EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
+    EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory
     EEPROM.writeFloat(44, PrevOPtimemins);    //save initial time to Flash memory
     EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory       
     EEPROM.writeFloat(52, acc_energy);
@@ -1274,7 +1278,7 @@ void save_lost(char selector){
           DriveOn = false;
           EEPROM.writeFloat(32, degrad_ratio);
           Serial.println("new_lost saved to EEPROM");
-          EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
+          EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
           EEPROM.writeFloat(52, acc_energy);
@@ -1288,7 +1292,7 @@ void stop_esp(){
         if (DriveOn){                
           EEPROM.writeFloat(32, degrad_ratio);
           Serial.println("new_lost saved to EEPROM");
-          EEPROM.writeFloat(36, kWh_100km);    //save actual kWh/100 in Flash memory
+          EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
           EEPROM.writeFloat(52, acc_energy);
@@ -1744,7 +1748,7 @@ void page6(){
         strcpy(title1,"BmsSoC");
         strcpy(title2,"CellVdiff");
         strcpy(title3,"MAXcellv");
-        strcpy(title4,"AuxBattSoC");               
+        strcpy(title4,"12V_SoC");               
         value1_float = BmsSoC;
         value2_float = CellVdiff;
         value3_float = MAXcellv;
@@ -1781,11 +1785,11 @@ void page6(){
 /*///////////////// Display Page 7 //////////////////////*/
 void page7(){
         
-        strcpy(title1,"MinDetNb");
+        strcpy(title1,"Full_Ah");
         strcpy(title2,"Deter_Min");
         strcpy(title3,"MaxDetNb");
         strcpy(title4,"SOH");        
-        value1_float = MinDetNb;
+        value1_float = EstFull_Ah;
         value2_float = Deter_Min;
         value3_float = MaxDetNb;
         value4_float = SOH;

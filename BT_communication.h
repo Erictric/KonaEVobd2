@@ -33,7 +33,6 @@ void ConnectToOBD2(TFT_eSPI& tft){
     tft.drawString("scanner", tft.width() / 2, tft.height() / 2 + 32);
     tft.drawString(" Phase 1", tft.width() / 2, tft.height() / 2 + 48);   
     
-    ESP.restart();
     //while (1);
   }
 

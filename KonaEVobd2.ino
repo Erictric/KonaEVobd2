@@ -666,7 +666,7 @@ void read_data(){
   Integrat_power();
 
   if(!ResetOn){     // On power On, wait for current trip values to be re-initialized before executing the next lines of code
-    TripOdo = (Odometer + interval_dist) - InitOdo;
+    TripOdo = Odometer - InitOdo;
     
     CurrTripOdo = Odometer - CurrInitOdo;    
     
@@ -696,9 +696,9 @@ void read_data(){
         InitRst = false;
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
-        // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed) or if SoC changed from 100 to 99 (did not go through 99.5)
+        // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed)
         // if(((Net_kWh < 0.2) && (PrevSoC > SoC)) | ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
-        if(((acc_energy < 0.3) && (PrevSoC > SoC)) | ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5))){ 
+        if((acc_energy < 0.3) && (PrevSoC > SoC)){ 
           Serial.print("Net_kWh= ");Serial.println(Net_kWh);
           Serial.print("2nd Reset");
           TrigRst = false;
@@ -769,7 +769,7 @@ void read_data(){
   }
   else{
     degrad_ratio = old_lost;
-    if(degrad_ratio > 1.2){ // if a bad value got saved previously, initial ratio to 1
+    if(degrad_ratio > 1.2){  // if a bad value got saved previously, initial ratio to 1
       degrad_ratio = 1;
     }
   }
@@ -864,17 +864,19 @@ float RangeCalc(){
 
   if ((prev_odo != CurrTripOdo) && (distance < 0.9)){
     if (TripOdo < 2){
-       InitOdo = Odometer + distance;   // correct initial odometer value using speed integration if odometer changes within 0.9km
+       InitOdo = Odometer - distance;   // correct initial odometer value using speed integration if odometer changes within 0.9km
+       TripOdo = Odometer - InitOdo;
     }
-    CurrInitOdo = Odometer + distance;    
+    CurrInitOdo = Odometer - distance;
+    CurrTripOdo = Odometer - CurrInitOdo;    
     prev_dist = distance;    
     prev_odo = CurrTripOdo;    
-    N_km_energy(Net_kWh);        
+    N_km_energy(acc_energy);        
   }
   else if(prev_odo != CurrTripOdo){
     prev_dist = distance;    
     prev_odo = CurrTripOdo;
-    N_km_energy(Net_kWh);
+    N_km_energy(acc_energy);
   }
   interval_dist = distance - prev_dist;
   Trip_dist = CurrTripOdo + interval_dist;

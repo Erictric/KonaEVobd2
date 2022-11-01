@@ -21,6 +21,7 @@ void ConnectToOBD2(TFT_eSPI& tft){
   tft.drawString("OBDII", tft.width() / 2, tft.height() / 2 + 16);
   tft.drawString("Device", tft.width() / 2, tft.height() / 2 + 32);
   Serial.println("...Connecting to OBDII...");
+  delay(3000);
 
   if (!ELM_PORT.connect("Android-Vlink")) // Device name of iCar Vgate pro BT4.0 OBD adapter
   {

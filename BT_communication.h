@@ -35,6 +35,7 @@ void ConnectToOBD2(TFT_eSPI& tft){
     tft.drawString(" Phase 1", tft.width() / 2, tft.height() / 2 + 48);   
     
     //while (1);
+    esp_deep_sleep_start();
   }
 
   if (!myELM327.begin(ELM_PORT,'6')) // select protocol '6'

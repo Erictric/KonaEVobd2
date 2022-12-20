@@ -21,9 +21,9 @@ void ConnectToOBD2(TFT_eSPI& tft){
   tft.drawString("OBDII", tft.width() / 2, tft.height() / 2 + 16);
   tft.drawString("Device", tft.width() / 2, tft.height() / 2 + 32);
   Serial.println("...Connecting to OBDII...");
-  delay(3000);
+  int retries = 0;
 
-  if (!ELM_PORT.connect("Android-Vlink")) // Device name of iCar Vgate pro BT4.0 OBD adapter
+  while (!ELM_PORT.connect("Android-Vlink") && (retries < 3)) // Device name of iCar Vgate pro BT4.0 OBD adapter
   {
     Serial.println("Couldn't connect to OBD scanner - Phase 1");
     tft.fillScreen(TFT_BLACK);
@@ -32,10 +32,14 @@ void ConnectToOBD2(TFT_eSPI& tft){
     tft.drawString("connect to", tft.width() / 2, tft.height() / 2);
     tft.drawString("OBDII", tft.width() / 2, tft.height() / 2 + 16);
     tft.drawString("scanner", tft.width() / 2, tft.height() / 2 + 32);
-    tft.drawString(" Phase 1", tft.width() / 2, tft.height() / 2 + 48);   
-    
-    //while (1);
-    esp_deep_sleep_start();
+    tft.drawString(" Phase 1", tft.width() / 2, tft.height() / 2 + 48); 
+    delay(1000);
+    retries += 1;
+    tft.fillScreen(TFT_BLACK);
+    tft.drawString("Connecting", tft.width() / 2, tft.height() / 2 - 16);
+    tft.drawString("Attempt", tft.width() / 2, tft.height() / 2);
+    tft.drawString("#", tft.width() / 2, tft.height() / 2 + 16);
+    tft.drawString("Device", tft.width() / 2, tft.height() / 2 + 32);    
   }
 
   if (!myELM327.begin(ELM_PORT,'6')) // select protocol '6'

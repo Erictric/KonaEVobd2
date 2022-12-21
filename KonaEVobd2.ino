@@ -161,7 +161,7 @@ float LastSoC = 0;
 double integrate_timer = 0.0;
 float start_kwh;
 double acc_energy = 0.0;
-double acc_regen = 0.0;
+double acc_regen;
 double acc_Ah = 0.0;
 double last_energy = 0.0;
 float last_time = 0.0;
@@ -346,7 +346,7 @@ void setup() {
   tft.setTextSize(2); 
   
   /*////// initialize EEPROM with predefined size ////////*/
-  EEPROM.begin(140);
+  EEPROM.begin(148);
 
   /* uncomment if you need to display Safestring results on Serial Monitor */
   //SafeString::setOutput(Serial);
@@ -882,7 +882,7 @@ float Integrat_power(){
   int_pwr = Power * pwr_interval / 3600;
   acc_energy += int_pwr;
   if(int_pwr < 0){
-    acc_regen += int_pwr;   
+    acc_regen += -(int_pwr);   
   }
 }
 
@@ -1020,36 +1020,36 @@ void EnergyTOC(){
   if(OUTDOORtemp >= 25){
     acc_kWh_25 = acc_kWh_25 + (acc_energy - last_energy);
     acc_time_25 = acc_time_25 + (CurrOPtime - last_time);
-    acc_dist_25 = acc_dist_25 + (Trip_dist - last_odo);    
+    acc_dist_25 = acc_dist_25 + (distance - last_odo);    
   }
   else if((OUTDOORtemp < 25) && (OUTDOORtemp >= 10)){
     acc_kWh_10 = acc_kWh_10 + (acc_energy - last_energy);
     acc_time_10 = acc_time_10 + (CurrOPtime - last_time);
-    acc_dist_10 = acc_dist_10 + (Trip_dist - last_odo);    
+    acc_dist_10 = acc_dist_10 + (distance - last_odo);    
   }
   else if((OUTDOORtemp < 10) && (OUTDOORtemp >= 0)){
     acc_kWh_0 = acc_kWh_0 + (acc_energy - last_energy);
     acc_time_0 = acc_time_0 + (CurrOPtime - last_time);
-    acc_dist_0 = acc_dist_0 + (Trip_dist - last_odo);    
+    acc_dist_0 = acc_dist_0 + (distance - last_odo);    
   }
   else if((OUTDOORtemp < 0) && (OUTDOORtemp >= -10)){
     acc_kWh_m10 = acc_kWh_m10 + (acc_energy - last_energy);
     acc_time_m10 = acc_time_m10 + (CurrOPtime - last_time);
-    acc_dist_m10 = acc_dist_m10 + (Trip_dist - last_odo);    
+    acc_dist_m10 = acc_dist_m10 + (distance - last_odo);    
   }
   else if((OUTDOORtemp < -10) && (OUTDOORtemp >= -20)){
     acc_kWh_m20 = acc_kWh_m20 + (acc_energy - last_energy);
     acc_time_m20 = acc_time_m20 + (CurrOPtime - last_time);
-    acc_dist_m20 = acc_dist_m20 + (Trip_dist - last_odo);    
+    acc_dist_m20 = acc_dist_m20 + (distance - last_odo);    
   }
   else if(OUTDOORtemp < -20){
     acc_kWh_m20p = acc_kWh_m20p + (acc_energy - last_energy);
     acc_time_m20p = acc_time_m20p + (CurrOPtime - last_time);
-    acc_dist_m20p = acc_dist_m20p + (Trip_dist - last_odo);    
+    acc_dist_m20p = acc_dist_m20p + (distance - last_odo);    
   }
   last_energy = acc_energy;
   last_time = CurrOPtime;
-  last_odo = Trip_dist;
+  last_odo = distance;
 }
 
 //--------------------------------------------------------------------------------------------
@@ -1436,7 +1436,7 @@ void setVessOff(char selector){
       }
 
 void initial_eeprom(){
-  for (int i = 68; i < 144; i+=4) {
+  for (int i = 68; i < 148; i+=4) {
     //if (isnan(EEPROM.readFloat(i))){    
       EEPROM.writeFloat(i, 0);
     //}  

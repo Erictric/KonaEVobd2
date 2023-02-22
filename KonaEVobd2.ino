@@ -16,10 +16,11 @@
 #include "BT_communication.h"
 #include "Wifi_connection.h"
 #include "FreeRTOS.h"
-#include "WiFiClientSecure.h"
 #include "WiFi.h"
 #include "InterpolationLib.h"
-
+//#include "SPIFFS.h"
+//#include "SD.h"
+#include "Free_Fonts.h"
 
 #define DEBUG_PORT Serial
 
@@ -40,14 +41,14 @@ TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom display library
 #define ADC_PIN 34
 
 //TFT y positions for texts and numbers
-#define textLvl1 8            // y coordinates for text
+#define textLvl1 5            // y coordinates for text
 #define textLvl2 68
 #define textLvl3 129
 #define textLvl4 189
-#define drawLvl1 38            // and numbers
-#define drawLvl2 99
-#define drawLvl3 159
-#define drawLvl4 219            // TTGO 135x240 TFT display
+#define drawLvl1 35            // and numbers
+#define drawLvl2 96
+#define drawLvl3 156
+#define drawLvl4 217            // TTGO 135x240 TFT display
 
 #define BUTTON_PIN  0
 #define BUTTON_2_PIN  35
@@ -76,7 +77,7 @@ float BattMinT;
 float BattMaxT;
 float AuxBattV;
 float AuxBattC;
-float AuxBattSoC;      
+float AuxBattSoC = 80;      
 float Batt12V;
 float BATTv;
 float BATTc;
@@ -142,12 +143,12 @@ float UsedSoC = 0;
 float Net_Ah = 0;
 float DischAh = 0;
 float RegenAh = 0;
-float TripOdo;
+float TripOdo = 0;
 int InitOdo = 0;
-float PrevOPtimemins;
-float TripOPtime;
-float CurrTimeInit;
-float CurrOPtime;
+float PrevOPtimemins = 0;
+float TripOPtime = 0;
+float CurrTimeInit = 0;
+float CurrOPtime = 0;
 float InitSoC = 0;
 float InitCEC = 0;
 float InitCED = 0;
@@ -158,25 +159,26 @@ float PrevBmsSoC = 0;
 float Regen = 0;
 float Discharg = 0;
 float LastSoC = 0;
-double integrate_timer = 0.0;
+float integrate_timer = 0.0;
 float start_kwh;
-double acc_energy = 0.0;
-double acc_regen;
-double acc_Ah = 0.0;
-double last_energy = 0.0;
+float acc_energy = 0.0;
+float acc_regen;
+float acc_Ah = 0.0;
+float last_energy = 0.0;
 float last_time = 0.0;
 float last_odo = 0.0;
 int energy_array_index = 0;
-double energy_array[N_km];
-double span_energy = 0.0;
-double speed_interval = 0.0;
-double init_speed_timer = 0.0;
-double int_speed = 0.0;
-double distance = 0.0;
-double prev_dist = 0;
-double interval_dist = 0;
-double Trip_dist = 0;
-double prev_odo = 0;
+int array_size = N_km + 1;
+float energy_array[11];
+float span_energy = 0.0;
+float speed_interval = 0.0;
+float init_speed_timer = 0.0;
+float int_speed = 0.0;
+float distance = 0.0;
+float prev_dist = 0;
+float interval_dist = 0;
+float Trip_dist = 0;
+float prev_odo = 0;
 float prev_power = 0.0;
 int pwr_changed = 0;
 int loop_count = 0;
@@ -255,10 +257,12 @@ int nbr_decimal1;
 int nbr_decimal2;
 int nbr_decimal3;
 int nbr_decimal4;
+bool Charge_page = false;
+bool Power_page = false;
 
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
-unsigned long ESPTimerInterval = 850000;
+unsigned long ESPTimerInterval = 1800000; // time in milliseconds to turn off ESP when it power-up during 12V battery charge cycle. 
 
 /*////// Variables for Google Sheet data transfer ////////////*/
 bool send_enabled = false;
@@ -313,8 +317,8 @@ void setup() {
   }
     
   Serial.println("Serial Monitor - STARTED");
-  
 
+  
   //pinMode(VESSoff, OUTPUT); // enable output pin that activate a relay to temporary disable the VESS
 
   /*//////////////Initialise buttons ////////////////*/
@@ -393,7 +397,8 @@ void setup() {
   acc_regen = EEPROM.readFloat(140);
 
   //initial_eeprom(); //if a new eeprom memory is used it needs to be initialize to something first
-  
+
+
         
 /*/////////////////////////////////////////////////////////////////*/
 /*                    CONNECTION TO OBDII                          */
@@ -734,16 +739,16 @@ void read_data(){
   
     CellVdiff = MAXcellv - MINcellv;       
     
-    if(PrevBmsSoC > BmsSoC){  // perform "used_kWh" and "left_kWh" when SoC changes
+    if(PrevBmsSoC > BmsSoC){  // perform a BmsSoC vs SoC ratio calculation when BmsSoC changes
       PrevBmsSoC = BmsSoC;
       SocRatioCalc();
     }
 
     if(PrevSoC != SoC){  // perform "used_kWh" and "left_kWh" when SoC changes
-      if(InitRst){  // On Trip reset, initial kWh calculation
+      if(InitRst){  // On Button Trip reset, initial kWh calculation
         Serial.print("1st Reset");        
         reset_trip();        
-        TrigRst = true;
+        //TrigRst = true;
         kWh_corr = 0;
         PrevSoC = SoC;
         Prev_kWh = Net_kWh;
@@ -755,11 +760,12 @@ void read_data(){
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
         // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed)
-        if(((Net_kWh < 0.3) && (PrevSoC > SoC)) | ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
+        if(((acc_energy < 0.3) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5))){
+        //if(((Net_kWh < 0.3) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5)) || (TrigRst && (PrevSoC > SoC))){ 
         //if((acc_energy < 0.3) && (PrevSoC > SoC)){ 
           Serial.print("Net_kWh= ");Serial.println(Net_kWh);
           Serial.print("2nd Reset");
-          TrigRst = false;
+          //TrigRst = false;
           reset_trip();
           kWh_corr = 0;
           used_kwh = calc_kwh(SoC, InitSoC);
@@ -814,10 +820,15 @@ void read_data(){
         corr_update = false;  // reset corr_update since it's not being recorded 
       }      
       sendIntervalOn = false;
-    }
+    }    
     
     if (((LastSoC + 1) < SoC) && (Power > 0)){ // reset trip after a battery recharge
-      reset_trip();    
+      if (LastSoC = 0){ // To fix a glich where LastSoC = 0 after a power up, not to trigger a reset_trip.
+        LastSoC = SoC;
+      }
+      else{  
+        reset_trip();
+      }   
     }
     
     EstFull_kWh = full_kwh * degrad_ratio;    
@@ -826,7 +837,16 @@ void read_data(){
     RangeCalc();
     if(BMS_ign){
       EnergyTOC();
-    }    
+    }
+
+    if(Max_Pwr < 100 && (Max_Pwr < (Power + 20)) && !Power_page){ //select the Max Power page if Power+20kW exceed Max_Pwr when Max_Pwr is lower then 100kW.
+      screenNbr = 4;
+      Power_page = true;
+    }
+    if(Power < 0 && (SpdSelect == 'P') && !Charge_page){
+      screenNbr = 3;
+      Charge_page = true; 
+    }
   } 
   
   save_lost(SpdSelect);
@@ -876,8 +896,8 @@ float UpdateNetEnergy(){
 /*//////Function to calculate Energy by power integration last reset //////////*/
 
 float Integrat_power(){
-  double pwr_interval;
-  double int_pwr;        
+  float pwr_interval;
+  float int_pwr;        
   pwr_interval = (millis() - integrate_timer) / 1000;
   int_pwr = Power * pwr_interval / 3600;
   acc_energy += int_pwr;
@@ -893,8 +913,8 @@ float Integrat_power(){
 /*//////Function to calculate Energy by power integration last reset //////////*/
 
 float Integrat_current(){
-  double curr_interval;
-  double int_curr;           
+  float curr_interval;
+  float int_curr;           
   curr_interval = (millis() - integrate_timer) / 1000;
   int_curr = BATTc * curr_interval / 3600;
   acc_Ah += int_curr;   
@@ -1063,13 +1083,13 @@ float calc_kwh(float min_SoC, float max_SoC){
   double xValues[] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
   //double yValues[] = { 0.5487, 0.5921, 0.5979, 0.6053, 0.6139, 0.6199, 0.6238, 0.6268, 0.6295, 0.6324, 0.6362, 0.6418, 0.6524, 0.6601, 0.6684, 0.6771, 0.6859, 0.6951, 0.7046, 0.7147, 0.7249};
   double yValues[] = { 0.5432, 0.5867, 0.5931, 0.6011, 0.6102, 0.6168, 0.6213, 0.6249, 0.6282, 0.6317, 0.6362, 0.6424, 0.6537, 0.6621, 0.6711, 0.6805, 0.6900, 0.7000, 0.7102, 0.7211, 0.7321};
-  double integral;
-  double interval;
+  float integral;
+  float interval;
   float return_kwh;
   static int N = 100;
   interval = (max_SoC - min_SoC) / N;
   integral = 0,0;
-  double x = 0;
+  float x = 0;
   for (int i = 0; i < N; ++i){
     x = min_SoC + interval * i;    
     integral += Interpolation::SmoothStep(xValues, yValues, numValues, x);  //64kWh battery energy equation    
@@ -1315,8 +1335,7 @@ void ButtonLoop() {
             if(SetupOn){
                 if (StayOn){                  
                   StayOn = false;
-                  Serial.println("StayOn: ");Serial.println(StayOn);
-                  
+                  Serial.println("StayOn: ");Serial.println(StayOn);                  
                 }
                 else{
                   StayOn = true;
@@ -1324,6 +1343,7 @@ void ButtonLoop() {
                 }
             }
             else{
+              screenNbr = 0;
               ledBacklight = 80;
               ledcWrite(pwmLedChannelTFT, ledBacklight);
              
@@ -1401,6 +1421,7 @@ void ResetCurrTrip(){ // when the car is turned On, current trip values are rese
         SocRatioCalc();
         used_kwh = calc_kwh(SoC, InitSoC) + kWh_corr;
         left_kwh = calc_kwh(0, SoC) - kWh_corr;
+        
         PrevSoC = SoC;
         PrevBmsSoC = BmsSoC;
         full_kwh = calc_kwh(0, 100);
@@ -1661,22 +1682,22 @@ void DisplayPage(){
         if(DrawBackground){
           tft.fillScreen(TFT_BLACK);
           tft.setTextDatum(MC_DATUM);
-          tft.setTextFont(1);
-          tft.setTextSize(2);
+                    
+          tft.setFreeFont(&FreeSans9pt7b);          
+          tft.setTextSize(1);
           tft.setTextColor(TFT_WHITE,TFT_BLUE);
           tft.setTextPadding(135);            
-          tft.drawString(title1, tft.width() / 2, textLvl1);
-          tft.drawString(title2, tft.width() / 2, textLvl2);
-          tft.drawString(title3, tft.width() / 2, textLvl3);
-          tft.drawString(title4, tft.width() / 2, textLvl4);          
+          tft.drawString(title1, tft.width() / 2, textLvl1, 1);
+          tft.drawString(title2, tft.width() / 2, textLvl2, 1);
+          tft.drawString(title3, tft.width() / 2, textLvl3, 1);
+          tft.drawString(title4, tft.width() / 2, textLvl4, 1);          
                  
           strcpy(prev_value1,"");
           strcpy(prev_value2,"");
           strcpy(prev_value3,"");
           strcpy(prev_value4,"");
           DrawBackground = false;
-          tft.setTextFont(2);
-          tft.setTextSize(3);          
+          tft.setFreeFont(&FreeSans24pt7b);                    
         }         
 
         if(value1_float < 0){ 
@@ -1715,53 +1736,53 @@ void DisplayPage(){
         
         if(value1 != prev_value1){            
           tft.setTextColor(TFT_BLACK,TFT_BLACK);        
-          tft.drawString(prev_value1, tft.width()/2, drawLvl1);
+          tft.drawString(prev_value1, tft.width()/2, drawLvl1, 1);
           if(negative_flag1){        
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value1, tft.width()/2, drawLvl1);
+            tft.drawString(value1, tft.width()/2, drawLvl1, 1);
           }
           else{            
             tft.setTextColor(TFT_GREEN,TFT_BLACK);        
-            tft.drawString(value1, tft.width()/2, drawLvl1);
+            tft.drawString(value1, tft.width()/2, drawLvl1, 1);
           }
           strcpy(prev_value1,value1);
         }
         if(value2 != prev_value2){         
           tft.setTextColor(TFT_BLACK,TFT_BLACK);
-          tft.drawString(prev_value2, tft.width()/2, drawLvl2);     
+          tft.drawString(prev_value2, tft.width()/2, drawLvl2, 1);     
           if(negative_flag2){     
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value2, tft.width()/2, drawLvl2);
+            tft.drawString(value2, tft.width()/2, drawLvl2, 1);
           }
           else{
             tft.setTextColor(TFT_GREEN,TFT_BLACK);
-            tft.drawString(value2, tft.width()/2, drawLvl2);            
+            tft.drawString(value2, tft.width()/2, drawLvl2, 1);            
           }
           strcpy(prev_value2,value2);
         }
         if(value3 != prev_value3){          
           tft.setTextColor(TFT_BLACK,TFT_BLACK);
-          tft.drawString(prev_value3, tft.width()/2, drawLvl3);
+          tft.drawString(prev_value3, tft.width()/2, drawLvl3, 1);
           if(negative_flag3){          
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value3, tft.width()/2, drawLvl3);
+            tft.drawString(value3, tft.width()/2, drawLvl3, 1);
           }
           else{
             tft.setTextColor(TFT_GREEN,TFT_BLACK);
-            tft.drawString(value3, tft.width()/2, drawLvl3);            
+            tft.drawString(value3, tft.width()/2, drawLvl3, 1);            
           }
           strcpy(prev_value3,value3);
         }
         if(value4 != prev_value4){          
           tft.setTextColor(TFT_BLACK,TFT_BLACK);
-          tft.drawString(prev_value4, tft.width()/2, drawLvl4);
+          tft.drawString(prev_value4, tft.width()/2, drawLvl4, 1);
           if(negative_flag4){          
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value4, tft.width()/2, drawLvl4);
+            tft.drawString(value4, tft.width()/2, drawLvl4, 1);
           }         
           else{
             tft.setTextColor(TFT_GREEN,TFT_BLACK);
-            tft.drawString(value4, tft.width()/2, drawLvl4);            
+            tft.drawString(value4, tft.width()/2, drawLvl4, 1);            
           }
           strcpy(prev_value4,value4);
         }                    
@@ -2081,7 +2102,7 @@ void loop() {
   /*/////// Display Page Number /////////////////*/
   
   if(!SetupOn && (ESP_on || (Power < 0))){      
-              
+      
       switch (screenNbr){  // select page to display                
                case 0: page1(); break;
                case 1: page2(); break;
@@ -2099,11 +2120,11 @@ void loop() {
         }
       }
   /*/////// Stop ESP /////////////////*/               
-  if(!BMS_ign && ESP_on && !StayOn){ 
+  if(!BMS_ign && ESP_on && !StayOn && (SpdSelect == 'P')){ 
     stop_esp();
   }
 
-  if (!BMS_ign && (Power >= 0) && !StayOn){
+  if (!BMS_ign && (Power >= 0) && !StayOn && (SpdSelect == 'P')){
     ESPTimer = millis();
     if ((ESPTimer - ESPinitTimer >= ESPTimerInterval) || (AuxBattSoC < 75)) {
         //ESPinitTimer = ESPTimer;     

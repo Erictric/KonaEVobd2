@@ -1,6 +1,7 @@
 
-/*  KonaEvObd for Hyundai Kona EV + OBD Vgate iCar Pro BT4.0 
- *  Version: v4.01
+
+/*  KonaEvObd2 for Hyundai Kona EV + OBD Vgate iCar Pro BT4.0 
+ *  Version: v4.11
   *   
   * SafeString by Matthew Ford: https://www.forward.com.au/pfod/ArduinoProgramming/SafeString/index.html
   * Elmduino by PowerBroker2: https://github.com/PowerBroker2/ELMduino
@@ -16,10 +17,11 @@
 #include "BT_communication.h"
 #include "Wifi_connection.h"
 #include "FreeRTOS.h"
-#include "WiFiClientSecure.h"
 #include "WiFi.h"
-#include "InterpolationLib.h"
-
+//#include "InterpolationLib.h"
+//#include "SPIFFS.h"
+//#include "SD.h"
+#include "Free_Fonts.h"
 
 #define DEBUG_PORT Serial
 
@@ -40,14 +42,14 @@ TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom display library
 #define ADC_PIN 34
 
 //TFT y positions for texts and numbers
-#define textLvl1 8            // y coordinates for text
+#define textLvl1 5            // y coordinates for text
 #define textLvl2 68
 #define textLvl3 129
 #define textLvl4 189
-#define drawLvl1 38            // and numbers
-#define drawLvl2 99
-#define drawLvl3 159
-#define drawLvl4 219            // TTGO 135x240 TFT display
+#define drawLvl1 35            // and numbers
+#define drawLvl2 96
+#define drawLvl3 156
+#define drawLvl4 217            // TTGO 135x240 TFT display
 
 #define BUTTON_PIN  0
 #define BUTTON_2_PIN  35
@@ -65,25 +67,32 @@ const int pwmFreq = 5000;
 const int pwmResolution = 8;
 const int pwmLedChannelTFT = 0;
 
-const int VESSoff = 12;
+const int VESSoff = 12; // output pin to diseable VESS speaker
 boolean SelectOn = true;
 unsigned long StartMillis;
 unsigned long ToggleDelay = 1000;
 boolean ResetOn = true;
-int screenNbr = 0;
+uint8_t screenNbr = 0;
+
+uint8_t reset_code = 0;
+float mem_energy = 0;
+float mem_PrevSoC = 0;
+float mem_SoC = 0;
+float mem_Power = 0;
+float mem_LastSoC = 0;
 
 float BattMinT;
 float BattMaxT;
 float AuxBattV;
 float AuxBattC;
-float AuxBattSoC;      
+float AuxBattSoC = 80;      
 float Batt12V;
 float BATTv;
 float BATTc;
 float MAXcellv;
 float MINcellv;
-int MAXcellvNb;
-int MINcellvNb;
+uint8_t MAXcellvNb;
+uint8_t MINcellvNb;
 float CellVdiff;
 float CEC;
 float CED;
@@ -97,8 +106,8 @@ float SoCratio;
 float Calc_kWh_corr;
 float SOH;
 float Deter_Min;
-int MinDetNb;
-int MaxDetNb;  
+uint8_t MinDetNb;
+uint8_t MaxDetNb;  
 float Heater;
 float COOLtemp;
 float OUTDOORtemp;
@@ -142,12 +151,12 @@ float UsedSoC = 0;
 float Net_Ah = 0;
 float DischAh = 0;
 float RegenAh = 0;
-float TripOdo;
-int InitOdo = 0;
-float PrevOPtimemins;
-float TripOPtime;
-float CurrTimeInit;
-float CurrOPtime;
+float TripOdo = 0;
+uint32_t InitOdo = 0;
+float PrevOPtimemins = 0;
+float TripOPtime = 0;
+float CurrTimeInit = 0;
+float CurrOPtime = 0;
 float InitSoC = 0;
 float InitCEC = 0;
 float InitCED = 0;
@@ -158,28 +167,27 @@ float PrevBmsSoC = 0;
 float Regen = 0;
 float Discharg = 0;
 float LastSoC = 0;
-double integrate_timer = 0.0;
+float integrate_timer = 0.0;
 float start_kwh;
-double acc_energy = 0.0;
-double acc_regen;
-double acc_Ah = 0.0;
-double last_energy = 0.0;
+float acc_energy = 0.0;
+float acc_regen;
+float acc_Ah = 0.0;
+float last_energy = 0.0;
 float last_time = 0.0;
 float last_odo = 0.0;
-int energy_array_index = 0;
-double energy_array[N_km];
-double span_energy = 0.0;
-double speed_interval = 0.0;
-double init_speed_timer = 0.0;
-double int_speed = 0.0;
-double distance = 0.0;
-double prev_dist = 0;
-double interval_dist = 0;
-double Trip_dist = 0;
-double prev_odo = 0;
+uint8_t energy_array_index = 0;
+uint8_t array_size = N_km + 1;
+float energy_array[11];
+float span_energy = 0.0;
+float speed_interval = 0.0;
+float init_speed_timer = 0.0;
+float int_speed = 0.0;
+float distance = 0.0;
+float prev_dist = 0;
+float interval_dist = 0;
+float Trip_dist = 0;
+float prev_odo = 0;
 float prev_power = 0.0;
-int pwr_changed = 0;
-int loop_count = 0;
 float full_kwh;
 float EstFull_kWh;
 float EstFull_Ah;
@@ -229,6 +237,7 @@ bool kWh_update = false;
 bool corr_update = false;
 bool ESP_on = false;
 bool esp_paused = false;
+bool Restart = false;
 int update_lock = 0;
 bool DrawBackground = true;
 char title1[12];
@@ -251,20 +260,22 @@ float value1_float;
 float value2_float;
 float value3_float;
 float value4_float;
-int nbr_decimal1;
-int nbr_decimal2;
-int nbr_decimal3;
-int nbr_decimal4;
+uint8_t nbr_decimal1;
+uint8_t nbr_decimal2;
+uint8_t nbr_decimal3;
+uint8_t nbr_decimal4;
+bool Charge_page = false;
+bool Power_page = false;
 
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
-unsigned long ESPTimerInterval = 850000;
+unsigned long ESPTimerInterval = 1800000; // time in milliseconds to turn off ESP when it power-up during 12V battery charge cycle. 
 
 /*////// Variables for Google Sheet data transfer ////////////*/
 bool send_enabled = false;
 bool send_data = false;
 bool data_sent = false;
-int nbParam = 73;    //number of parameters to send to Google Sheet
+uint8_t nbParam = 73;    //number of parameters to send to Google Sheet
 unsigned long sendInterval = 5000;
 unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
@@ -281,7 +292,8 @@ static bool flag = false;
 const long obd_update = 100; // interval to update OBD data (milliseconds)
 unsigned long currentMillis;  // timing variable to sample OBD data
 unsigned long previousMillis = 0; // timing variable to sample OBD data
-int pid_counter;
+uint8_t
+pid_counter;
 
 /*////// Variables for Buttons ////////////*/
 const long Longinterval = 3000; // interval for long button press (milliseconds)
@@ -313,8 +325,8 @@ void setup() {
   }
     
   Serial.println("Serial Monitor - STARTED");
-  
 
+  
   //pinMode(VESSoff, OUTPUT); // enable output pin that activate a relay to temporary disable the VESS
 
   /*//////////////Initialise buttons ////////////////*/
@@ -346,7 +358,7 @@ void setup() {
   tft.setTextSize(2); 
   
   /*////// initialize EEPROM with predefined size ////////*/
-  EEPROM.begin(148);
+  EEPROM.begin(168);
 
   /* uncomment if you need to display Safestring results on Serial Monitor */
   //SafeString::setOutput(Serial);
@@ -366,6 +378,7 @@ void setup() {
   old_lost = EEPROM.readFloat(32);
   old_PIDkWh_100km = EEPROM.readFloat(36);
   StayOn = EEPROM.readBool(40);
+  Restart = EEPROM.readBool(41);
   PrevOPtimemins = EEPROM.readFloat(44);
   kWh_corr = EEPROM.readFloat(48);
   acc_energy = EEPROM.readFloat(52);
@@ -391,9 +404,16 @@ void setup() {
   acc_dist_m20 = EEPROM.readFloat(132);
   acc_dist_m20p = EEPROM.readFloat(136);
   acc_regen = EEPROM.readFloat(140);
+  CurrInitAccEnergy = EEPROM.readFloat(144);
+  CurrInitCED = EEPROM.readFloat(148);
+  CurrInitCEC = EEPROM.readFloat(152);
+  CurrInitOdo = EEPROM.readFloat(156);
+  CurrInitSoC = EEPROM.readFloat(160);
+  CurrTimeInit = EEPROM.readFloat(164);  
 
   //initial_eeprom(); //if a new eeprom memory is used it needs to be initialize to something first
-  
+
+
         
 /*/////////////////////////////////////////////////////////////////*/
 /*                    CONNECTION TO OBDII                          */
@@ -560,10 +580,8 @@ void read_data(){
           if (BMS_ign){
             ESP_on = true;            
           }          
-          UpdateNetEnergy();
-          pwr_changed += 1;
-          //break;
-          
+          UpdateNetEnergy();          
+                    
   switch (pid_counter){
     case 1:
   
@@ -734,32 +752,45 @@ void read_data(){
   
     CellVdiff = MAXcellv - MINcellv;       
     
-    if(PrevBmsSoC > BmsSoC){  // perform "used_kWh" and "left_kWh" when SoC changes
+    if(PrevBmsSoC > BmsSoC){  // perform a BmsSoC vs SoC ratio calculation when BmsSoC changes
       PrevBmsSoC = BmsSoC;
       SocRatioCalc();
     }
 
     if(PrevSoC != SoC){  // perform "used_kWh" and "left_kWh" when SoC changes
-      if(InitRst){  // On Trip reset, initial kWh calculation
-        Serial.print("1st Reset");        
+      if(InitRst){  // On Button Trip reset, initial kWh calculation
+        Serial.print("1st Reset");
+        initscan = true;
+        reset_code = 2;        
         reset_trip();        
-        TrigRst = true;
+        //TrigRst = true;
         kWh_corr = 0;
         PrevSoC = SoC;
         Prev_kWh = Net_kWh;
         used_kwh = calc_kwh(SoC, InitSoC);
-        left_kwh = calc_kwh(0, SoC);        
-        initscan = true;
+        left_kwh = calc_kwh(0, SoC);       
+        
         InitRst = false;
         
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
         // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed)
-        if(((Net_kWh < 0.3) && (PrevSoC > SoC)) | ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5)) | (TrigRst & (PrevSoC > SoC))){ 
-        //if((acc_energy < 0.3) && (PrevSoC > SoC)){ 
-          Serial.print("Net_kWh= ");Serial.println(Net_kWh);
-          Serial.print("2nd Reset");
-          TrigRst = false;
+        if(((acc_energy < 0.3) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5))){
+        //if(((Net_kWh < 0.3) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5)) || (TrigRst && (PrevSoC > SoC))){ 
+        //if((acc_energy < 0.3) && (PrevSoC > SoC)){           
+          initscan = true;
+          mem_energy = acc_energy;
+          mem_PrevSoC = PrevSoC;
+          mem_SoC = SoC;
+          if((acc_energy < 0.3) && (PrevSoC > SoC))
+          {
+            reset_code = 3;            
+          }
+          else
+          {
+            reset_code = 4;
+          }
+          //TrigRst = false;
           reset_trip();
           kWh_corr = 0;
           used_kwh = calc_kwh(SoC, InitSoC);
@@ -814,10 +845,20 @@ void read_data(){
         corr_update = false;  // reset corr_update since it's not being recorded 
       }      
       sendIntervalOn = false;
-    }
+    }    
     
     if (((LastSoC + 1) < SoC) && (Power > 0)){ // reset trip after a battery recharge
-      reset_trip();    
+      if (LastSoC = 0){ // To fix a glich where LastSoC = 0 after a power up, not to trigger a reset_trip.
+        LastSoC = SoC;
+      }
+      else{  
+        mem_Power = Power;
+        mem_LastSoC = LastSoC;
+        mem_SoC = SoC;
+        initscan = true;
+        reset_code = 1;
+        reset_trip();
+      }   
     }
     
     EstFull_kWh = full_kwh * degrad_ratio;    
@@ -826,10 +867,25 @@ void read_data(){
     RangeCalc();
     if(BMS_ign){
       EnergyTOC();
-    }    
+    }
+
+    if(Max_Pwr < 100 && (Max_Pwr < (Power + 20)) && !Power_page){ //select the Max Power page if Power+20kW exceed Max_Pwr when Max_Pwr is lower then 100kW.
+      screenNbr = 4;
+      DrawBackground = true;
+      Power_page = true;
+    }
+    if(Power < 0 && (SpdSelect == 'P') && !Charge_page){
+      screenNbr = 3;
+      DrawBackground = true;
+      Charge_page = true; 
+    }
+    if(Power == 0 && (SpdSelect == 'D') && SoC == 0){
+      restart_esp();
+    }
+    save_lost(SpdSelect);
   } 
   
-  save_lost(SpdSelect);
+  
 }
 
 //--------------------------------------------------------------------------------------------
@@ -841,7 +897,7 @@ void read_data(){
 float UpdateNetEnergy(){        
         if (InitCED == 0){ //if discharge value have been reinitiate to 0 then      
             InitCED = CED;  //initiate to current CED for initial CED value and            
-            InitSoC = SoC;  //initiate to current CED for initial SoC value and
+            InitSoC = SoC;  //initiate to current SoC for initial SoC value and
             CurrInitCED = CED;
             }
         if (InitCDC == 0){
@@ -876,8 +932,8 @@ float UpdateNetEnergy(){
 /*//////Function to calculate Energy by power integration last reset //////////*/
 
 float Integrat_power(){
-  double pwr_interval;
-  double int_pwr;        
+  float pwr_interval;
+  float int_pwr;        
   pwr_interval = (millis() - integrate_timer) / 1000;
   int_pwr = Power * pwr_interval / 3600;
   acc_energy += int_pwr;
@@ -887,14 +943,14 @@ float Integrat_power(){
 }
 
 //--------------------------------------------------------------------------------------------
-//                   Net Energy based on Power integration Function
+//                   Net Capacity based on Current integration Function
 //--------------------------------------------------------------------------------------------
  
 /*//////Function to calculate Energy by power integration last reset //////////*/
 
 float Integrat_current(){
-  double curr_interval;
-  double int_curr;           
+  float curr_interval;
+  float int_curr;           
   curr_interval = (millis() - integrate_timer) / 1000;
   int_curr = BATTc * curr_interval / 3600;
   acc_Ah += int_curr;   
@@ -925,7 +981,7 @@ float N_km_energy(float latest_energy){
 float Integrat_speed(){  
   speed_interval = (millis() - init_speed_timer) / 1000;
   int_speed = Speed * speed_interval / 3600;
-  distance += (int_speed * 1.022); // need to apply a 1.022 to get correct distance
+  distance += (int_speed * 1.022); // need to apply a 1.022 to get correct distance (not sure why...)
   init_speed_timer = millis();  
 }
 
@@ -1056,28 +1112,49 @@ void EnergyTOC(){
 //                   Function to calculate energy between two SoC values
 //--------------------------------------------------------------------------------------------
 
-float calc_kwh(float min_SoC, float max_SoC){
+double Interpolate(double xValues[], double yValues[], int numValues, double pointX, bool trim = true)
+{
+  if (trim)
+  {
+    if (pointX <= xValues[0]) return yValues[0];
+    if (pointX >= xValues[numValues - 1]) return yValues[numValues - 1];
+  }
+
+  auto i = 0;
+  if (pointX <= xValues[0]) i = 0;
+  else if (pointX >= xValues[numValues - 1]) i = numValues - 1;
+  else while (pointX >= xValues[i + 1]) i++;
+  if (pointX == xValues[i + 1]) return yValues[i + 1];
+
+  auto t = (pointX - xValues[i]) / (xValues[i + 1] - xValues[i]);
+  t = t * t * (3 - 2 * t);
+  return yValues[i] * (1 - t) + yValues[i + 1] * t;
+}
+
+float calc_kwh(double min_SoC, double max_SoC){
   
   /* variable for kWh/%SoC calculation: xValues = %SoC and yValues = kWh */ 
   const int numValues = 21;
-  double xValues[] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
-  //double yValues[] = { 0.5487, 0.5921, 0.5979, 0.6053, 0.6139, 0.6199, 0.6238, 0.6268, 0.6295, 0.6324, 0.6362, 0.6418, 0.6524, 0.6601, 0.6684, 0.6771, 0.6859, 0.6951, 0.7046, 0.7147, 0.7249};
+  double xValues[] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };  
   double yValues[] = { 0.5432, 0.5867, 0.5931, 0.6011, 0.6102, 0.6168, 0.6213, 0.6249, 0.6282, 0.6317, 0.6362, 0.6424, 0.6537, 0.6621, 0.6711, 0.6805, 0.6900, 0.7000, 0.7102, 0.7211, 0.7321};
-  double integral;
+  static double integral;
   double interval;
-  float return_kwh;
+  double return_kwh;
   static int N = 100;
+  bool trim = true;
   interval = (max_SoC - min_SoC) / N;
   integral = 0,0;
   double x = 0;
   for (int i = 0; i < N; ++i){
     x = min_SoC + interval * i;    
-    integral += Interpolation::SmoothStep(xValues, yValues, numValues, x);  //64kWh battery energy equation    
+    integral += Interpolate(xValues, yValues, numValues, x, trim);  //64kWh battery energy equation    
   }
   //return_kwh = integral * interval;  
   return_kwh = (integral * interval) * Calc_kWh_corr;
   return return_kwh;
 }
+
+
 
 //----------------------------------------------------------------------------------------
 //        Task on core 0 to Send data to Google Sheet via IFTTT web service Function                                            
@@ -1186,21 +1263,46 @@ void makeIFTTTRequest(void * pvParameters){
       int i=0;
       
       if(initscan){
-          initscan = false;
-          while(i!=nbParam){
-            if(i==0){
-              headerNames = String("{\"value1\":\"") + column_name[i];
-              i++;
-            }
-            if(i==nbParam)
+        switch (reset_code)
+        {
+            case 0:   // No reset only header required, ESP32 power reboot
+              while(i!=nbParam)
+              {
+                if(i==0){
+                  headerNames = String("{\"value1\":\"") + column_name[i];
+                  i++;
+                }
+                if(i==nbParam)
+                  break;
+                headerNames = headerNames + "|||" + column_name[i];
+                i++;    
+              }
+              initscan = false;
               break;
-            headerNames = headerNames + "|||" + column_name[i];
-            i++;    
-        }        
-      
+
+            case 1:   // Write status for Reset after a battery was recharged
+              headerNames = String("{\"value1\":\"") + "|||" + "Battery_Recharged" + "|||" + "LastSoc:" + "|||" + mem_LastSoC + "|||" + "Soc:" + "|||" + mem_SoC + "|||" + "Power:" + "|||"  + mem_Power;
+              reset_code = 0;
+              break;
+
+            case 2:   // Write status for Reset performed with reset button (right button)
+              headerNames = String("{\"value1\":\"") + "|||" + "Button_Reset";
+              reset_code = 0;
+              break;
+
+            case 3:   // Write status for Reset when Acc_energy is less then 0.3kWh when SoC changes
+              headerNames = String("{\"value1\":\"") + "|||" + "ACC_energy <0.3" + "|||" + "acc_energy:" + "|||" + mem_energy + "|||" + "PreSoC:" + "|||" + mem_PrevSoC + "|||" + "SoC:" + "|||" + mem_SoC;
+              reset_code = 0;
+              break;
+
+            case 4:   // Write status for Reset if SoC changes from 100 to 99% not going through 99.5%
+              headerNames = String("{\"value1\":\"") + "|||" + "100_to_99SoC_reset" + "|||" + "PreSoc:" + "|||" + mem_PrevSoC + "|||" + "SoC:" + "|||" + mem_SoC;
+              reset_code = 0;
+              break;
+
+        }      
           payload = headerNames;
-          
-      }
+      }   
         
       else{
         while(i!=nbParam) 
@@ -1244,9 +1346,7 @@ void makeIFTTTRequest(void * pvParameters){
       Serial.println("closing connection");
       client.stop();
 
-      send_data = false;
-      pwr_changed = 0;
-      loop_count = 0;
+      send_data = false;           
       
       if(kWh_update){ //add condition so "kWh_corr" is not trigger before a cycle after a "kWh_update"
         Prev_kWh = Net_kWh;        
@@ -1256,7 +1356,7 @@ void makeIFTTTRequest(void * pvParameters){
         corr_update = false;  // reset corr_update after it has been recorded
       }
     }    
-    vTaskDelay(10);
+    vTaskDelay(10); // some delay is required to reset watchdog timer
   }
 }
 
@@ -1315,8 +1415,7 @@ void ButtonLoop() {
             if(SetupOn){
                 if (StayOn){                  
                   StayOn = false;
-                  Serial.println("StayOn: ");Serial.println(StayOn);
-                  
+                  Serial.println("StayOn: ");Serial.println(StayOn);                  
                 }
                 else{
                   StayOn = true;
@@ -1324,6 +1423,8 @@ void ButtonLoop() {
                 }
             }
             else{
+              screenNbr = 0;
+              DrawBackground = true;
               ledBacklight = 80;
               ledcWrite(pwmLedChannelTFT, ledBacklight);
              
@@ -1339,7 +1440,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
     Serial.println("saving");
     InitOdo = Odometer;                 
     InitCED = CED;  //initiate to current CED for initial CED value and
-    InitSoC = SoC;  //initiate to current CED for initial SoC value and          
+    InitSoC = SoC;  //initiate to current SoC for initial SoC value and          
     InitCEC = CEC;  //initiate to current CEC for initial CEC value and
     InitCDC = CDC;
     InitCCC = CCC;
@@ -1386,7 +1487,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
 void ResetCurrTrip(){ // when the car is turned On, current trip values are resetted.
   
     if (
-      ResetOn && (SoC > 1) && (Odometer > 1) && (CED > 1) && (CEC > 1)){ // ResetOn condition might be enough, might need to update code...        
+      ResetOn && (SoC > 1) && (Odometer > 1) && (CED > 1) && (CEC > 1) && !Restart){ // ResetOn condition might be enough, might need to update code...        
         CurrInitAccEnergy = acc_energy;        
         CurrInitCED = CED;
         CurrInitCEC = CEC;
@@ -1401,6 +1502,7 @@ void ResetCurrTrip(){ // when the car is turned On, current trip values are rese
         SocRatioCalc();
         used_kwh = calc_kwh(SoC, InitSoC) + kWh_corr;
         left_kwh = calc_kwh(0, SoC) - kWh_corr;
+        
         PrevSoC = SoC;
         PrevBmsSoC = BmsSoC;
         full_kwh = calc_kwh(0, 100);
@@ -1414,20 +1516,40 @@ void ResetCurrTrip(){ // when the car is turned On, current trip values are rese
             if((degrad_ratio > 1.2) || (degrad_ratio < 0.8)){  // if a bad value got saved previously, initial ratio to 1
               degrad_ratio = 1;
             }
-  }
+      }
+    else if(Restart){
+        Restart = false;
+        Prev_kWh = Net_kWh;
+        last_energy = acc_energy;        
+        SocRatioCalc();
+        used_kwh = calc_kwh(SoC, InitSoC) + kWh_corr;
+        left_kwh = calc_kwh(0, SoC) - kWh_corr;
+        
+        PrevSoC = SoC;
+        PrevBmsSoC = BmsSoC;
+        full_kwh = calc_kwh(0, 100);
+        start_kwh = calc_kwh(0, InitSoC);
+        ResetOn = false;
+        DrawBackground = true;
+        for (uint8_t i = 0 ; i < N_km ; i++ ){
+          energy_array[i] = acc_energy;
+        }
+        degrad_ratio = old_lost;
+            if((degrad_ratio > 1.2) || (degrad_ratio < 0.8)){  // if a bad value got saved previously, initial ratio to 1
+              degrad_ratio = 1;
+            }
+    }
 }
 
 /*//////Function to disable the VESS //////////*/
 
 void setVessOff(char selector){  
-        if (selector == 'D' && SelectOn){      
-          //digitalWrite(LedPin, HIGH);
+        if (selector == 'D' && SelectOn){ 
           digitalWrite(VESSoff, HIGH);   
           StartMillis = millis();
           SelectOn = false;
         }
-        if ((millis() - StartMillis) >= ToggleDelay){     
-          //digitalWrite(LedPin, LOW);
+        if ((millis() - StartMillis) >= ToggleDelay){ 
           digitalWrite(VESSoff, LOW);    
         }
         if (selector == 'P'){
@@ -1444,7 +1566,7 @@ void initial_eeprom(){
   EEPROM.commit();  
 }
 
-/*//////Function to save some variable before turn off the car //////////*/
+/*//////Function to save some variable before turning off the ESP32 //////////*/
 
 void save_lost(char selector){         
         if (selector == 'D' && !DriveOn){ 
@@ -1529,47 +1651,70 @@ void stop_esp(){
         tft.drawString("Stopped", tft.width() / 2, tft.height() / 2);
         ELM_PORT.end();
         delay(1500);
-        esp_deep_sleep_start();
-        //tft.fillScreen(TFT_BLACK);            
+        esp_deep_sleep_start(); 
+}
+
+void restart_esp(){       
+        ESP_on = false; 
+                        
+        Serial.println("Values saved to EEPROM before reboot");
+        EEPROM.writeFloat(32, degrad_ratio);        
+        EEPROM.writeBool(41, true);
+        EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory
+        EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
+        EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
+        EEPROM.writeFloat(52, acc_energy);
+        EEPROM.writeFloat(56, SoC);        
+        EEPROM.writeFloat(60, kWh_100km);
+        EEPROM.writeFloat(64, acc_Ah);
+        EEPROM.writeFloat(68, acc_kWh_25);
+        EEPROM.writeFloat(72, acc_kWh_10);
+        EEPROM.writeFloat(76, acc_kWh_0);
+        EEPROM.writeFloat(80, acc_kWh_m10);
+        EEPROM.writeFloat(84, acc_kWh_m20);
+        EEPROM.writeFloat(88, acc_kWh_m20p);
+        EEPROM.writeFloat(92, acc_time_25);
+        EEPROM.writeFloat(96, acc_time_10);
+        EEPROM.writeFloat(100, acc_time_0);
+        EEPROM.writeFloat(104, acc_time_m10);
+        EEPROM.writeFloat(108, acc_time_m20);
+        EEPROM.writeFloat(112, acc_time_m20p);
+        EEPROM.writeFloat(116, acc_dist_25);
+        EEPROM.writeFloat(120, acc_dist_10);
+        EEPROM.writeFloat(124, acc_dist_0);
+        EEPROM.writeFloat(128, acc_dist_m10);
+        EEPROM.writeFloat(132, acc_dist_m20);
+        EEPROM.writeFloat(136, acc_dist_m20p);
+        EEPROM.writeFloat(140, acc_regen);
+        EEPROM.writeFloat(144, CurrInitAccEnergy);
+        EEPROM.writeFloat(148, CurrInitCED);
+        EEPROM.writeFloat(152, CurrInitCEC);
+        EEPROM.writeFloat(156, CurrInitOdo);
+        EEPROM.writeFloat(160, CurrInitSoC);
+        EEPROM.writeFloat(164, CurrTimeInit);        
+        EEPROM.commit();
         
-}
-
-void start_esp(){
-        tft.init(); // display initialisation
-        tft.begin();
-        tft.setRotation(0);  // 0 & 2 Portrait. 1 & 3 landscape
-        tft.fillScreen(TFT_BLACK);
-        tft.setTextColor(TFT_GREEN);
-        tft.setCursor(0, 0);
-        tft.setTextDatum(MC_DATUM);
-        tft.setTextFont(1);
-        tft.setTextSize(2);        
-        tft.drawString("Starting", tft.width() / 2, tft.height() / 2 - 16);
-        tft.drawString("ESP", tft.width() / 2, tft.height() / 2);
-        delay(1000);        
-        ConnectWifi(tft);
-        send_enabled = true;
-        DrawBackground = true;       
-}
-
-void pause_esp(){
         tft.setTextFont(1);
         tft.setTextSize(2);
         tft.fillScreen(TFT_BLACK);
-        tft.drawString("ESP", tft.width() / 2, tft.height() / 2 - 16);
-        tft.drawString("Paused", tft.width() / 2, tft.height() / 2);          
+        tft.drawString("Wifi", tft.width() / 2, tft.height() / 2 - 16);
+        tft.drawString("Stopped", tft.width() / 2, tft.height() / 2);          
         WiFi.disconnect();
-        send_enabled = false;
-        esp_paused = true;        
-        delay(1000);
-        tft.fillScreen(TFT_BLACK);               
+        delay(1500);
+        tft.fillScreen(TFT_BLACK);
+        tft.drawString("OBD2", tft.width() / 2, tft.height() / 2 - 16);
+        tft.drawString("Stopped", tft.width() / 2, tft.height() / 2);
+        ELM_PORT.end();
+        delay(1500);
+        ESP.restart();        
 }
 
 void SetupMode(){
     tft.fillScreen(TFT_BLACK);    
     tft.setTextColor(TFT_WHITE,TFT_BLUE);
-    tft.setTextPadding(135);
-    //tft.drawRect(0, 0, 135, 59, TFT_BLUE); // Blue rectangle
+    tft.setTextPadding(135);    
+    tft.setFreeFont(&FreeSansBold9pt7b);          
+    tft.setTextSize(1);
     tft.drawString("Stay On", tft.width() / 2, textLvl1, 1);
     if (StayOn){
         tft.setTextColor(TFT_BLACK,TFT_GREEN); 
@@ -1658,25 +1803,24 @@ void draw_greenbox_lvl4(){
 void DisplayPage(){ 
         Serial.print("DrawBackground: ");
         Serial.println(DrawBackground);      
-        if(DrawBackground){
+        if(DrawBackground){ // Draw text titles only one time when page is loaded to illiminate flicker
           tft.fillScreen(TFT_BLACK);
-          tft.setTextDatum(MC_DATUM);
-          tft.setTextFont(1);
-          tft.setTextSize(2);
+          tft.setTextDatum(MC_DATUM);                    
+          tft.setFreeFont(&FreeSansBold9pt7b);          
+          tft.setTextSize(1);
           tft.setTextColor(TFT_WHITE,TFT_BLUE);
           tft.setTextPadding(135);            
-          tft.drawString(title1, tft.width() / 2, textLvl1);
-          tft.drawString(title2, tft.width() / 2, textLvl2);
-          tft.drawString(title3, tft.width() / 2, textLvl3);
-          tft.drawString(title4, tft.width() / 2, textLvl4);          
+          tft.drawString(title1, tft.width() / 2, textLvl1, 1);
+          tft.drawString(title2, tft.width() / 2, textLvl2, 1);
+          tft.drawString(title3, tft.width() / 2, textLvl3, 1);
+          tft.drawString(title4, tft.width() / 2, textLvl4, 1);          
                  
           strcpy(prev_value1,"");
           strcpy(prev_value2,"");
           strcpy(prev_value3,"");
           strcpy(prev_value4,"");
           DrawBackground = false;
-          tft.setTextFont(2);
-          tft.setTextSize(3);          
+          tft.setFreeFont(&FreeSans24pt7b);                    
         }         
 
         if(value1_float < 0){ 
@@ -1715,53 +1859,53 @@ void DisplayPage(){
         
         if(value1 != prev_value1){            
           tft.setTextColor(TFT_BLACK,TFT_BLACK);        
-          tft.drawString(prev_value1, tft.width()/2, drawLvl1);
+          tft.drawString(prev_value1, tft.width()/2, drawLvl1, 1);
           if(negative_flag1){        
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value1, tft.width()/2, drawLvl1);
+            tft.drawString(value1, tft.width()/2, drawLvl1, 1);
           }
           else{            
             tft.setTextColor(TFT_GREEN,TFT_BLACK);        
-            tft.drawString(value1, tft.width()/2, drawLvl1);
+            tft.drawString(value1, tft.width()/2, drawLvl1, 1);
           }
           strcpy(prev_value1,value1);
         }
         if(value2 != prev_value2){         
           tft.setTextColor(TFT_BLACK,TFT_BLACK);
-          tft.drawString(prev_value2, tft.width()/2, drawLvl2);     
+          tft.drawString(prev_value2, tft.width()/2, drawLvl2, 1);     
           if(negative_flag2){     
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value2, tft.width()/2, drawLvl2);
+            tft.drawString(value2, tft.width()/2, drawLvl2, 1);
           }
           else{
             tft.setTextColor(TFT_GREEN,TFT_BLACK);
-            tft.drawString(value2, tft.width()/2, drawLvl2);            
+            tft.drawString(value2, tft.width()/2, drawLvl2, 1);            
           }
           strcpy(prev_value2,value2);
         }
         if(value3 != prev_value3){          
           tft.setTextColor(TFT_BLACK,TFT_BLACK);
-          tft.drawString(prev_value3, tft.width()/2, drawLvl3);
+          tft.drawString(prev_value3, tft.width()/2, drawLvl3, 1);
           if(negative_flag3){          
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value3, tft.width()/2, drawLvl3);
+            tft.drawString(value3, tft.width()/2, drawLvl3, 1);
           }
           else{
             tft.setTextColor(TFT_GREEN,TFT_BLACK);
-            tft.drawString(value3, tft.width()/2, drawLvl3);            
+            tft.drawString(value3, tft.width()/2, drawLvl3, 1);            
           }
           strcpy(prev_value3,value3);
         }
         if(value4 != prev_value4){          
           tft.setTextColor(TFT_BLACK,TFT_BLACK);
-          tft.drawString(prev_value4, tft.width()/2, drawLvl4);
+          tft.drawString(prev_value4, tft.width()/2, drawLvl4, 1);
           if(negative_flag4){          
             tft.setTextColor(TFT_ORANGE,TFT_BLACK);        
-            tft.drawString(value4, tft.width()/2, drawLvl4);
+            tft.drawString(value4, tft.width()/2, drawLvl4, 1);
           }         
           else{
             tft.setTextColor(TFT_GREEN,TFT_BLACK);
-            tft.drawString(value4, tft.width()/2, drawLvl4);            
+            tft.drawString(value4, tft.width()/2, drawLvl4, 1);            
           }
           strcpy(prev_value4,value4);
         }                    
@@ -1775,9 +1919,9 @@ void DisplayPage(){
 void page1(){ 
         
         strcpy(title1,"TripOdo");
-        strcpy(title2,"PIDkWh_100");
-        strcpy(title3,"Est_range3");
-        strcpy(title4,"EstLeft_kWh");
+        strcpy(title2,"kWh/100km");
+        strcpy(title3,"PID Range");
+        strcpy(title4,"Left_kWh");
         value1_float = TripOdo;
         value2_float = PIDkWh_100;
         value3_float = Est_range3;
@@ -1816,7 +1960,7 @@ void page2(){
   
         strcpy(title1,"kWh/100km");
         strcpy(title2,"Est_range");
-        strcpy(title3,"span_kWh");
+        strcpy(title3,"10Km_kWh");
         strcpy(title4,"Est_range2");        
         value1_float = kWh_100km;
         value2_float = Est_range;
@@ -1854,10 +1998,10 @@ void page2(){
 /*///////////////// Display Page 3 //////////////////////*/
 void page3(){
 
-        strcpy(title1,"Calc_Used");        
+        strcpy(title1,"kWh_Used");        
         strcpy(title2,"Calc_Left");
-        strcpy(title3,"Net_kWh");
-        strcpy(title4,"acc_energy");  
+        strcpy(title3,"PID_kWh");
+        strcpy(title4,"Int_energy");  
         value1_float = used_kwh;
         value2_float = left_kwh;
         value3_float = Net_kWh;
@@ -1894,10 +2038,10 @@ void page3(){
 /*///////////////// Display Page 4 //////////////////////*/
 void page4(){
   
-        strcpy(title1,"BattMinT");
+        strcpy(title1,"MIN_Temp");
         strcpy(title2,"Heater");
         strcpy(title3,"Power");
-        strcpy(title4,"BattMaxT");        
+        strcpy(title4,"MAX_Temp");        
         value1_float = BattMinT;
         value2_float = Heater;
         value3_float = Power;
@@ -1936,9 +2080,9 @@ void page4(){
 /*///////////////// Display Page 5 //////////////////////*/
 void page5(){
           
-        strcpy(title1,"Max_Pwr");
+        strcpy(title1,"MAX_Pwr");
         strcpy(title2,"Power");
-        strcpy(title3,"BattMinT");
+        strcpy(title3,"MIN_Temp");
         strcpy(title4,"SoC");        
         value1_float = Max_Pwr;
         value2_float = Power;
@@ -2059,9 +2203,7 @@ void page7(){
 /*                     START OF LOOP                                     */ 
 /*///////////////////////////////////////////////////////////////////////*/
 
-void loop() {
-  
-  loop_count += 1;
+void loop() {  
   ButtonLoop();
 
   currentTimer = millis();  
@@ -2072,7 +2214,6 @@ void loop() {
       sendIntervalOn = true;      
     }
   } 
-
                
   /*/////// Read each OBDII PIDs /////////////////*/
 
@@ -2081,7 +2222,7 @@ void loop() {
   /*/////// Display Page Number /////////////////*/
   
   if(!SetupOn && (ESP_on || (Power < 0))){      
-              
+      
       switch (screenNbr){  // select page to display                
                case 0: page1(); break;
                case 1: page2(); break;
@@ -2099,11 +2240,11 @@ void loop() {
         }
       }
   /*/////// Stop ESP /////////////////*/               
-  if(!BMS_ign && ESP_on && !StayOn){ 
+  if(!BMS_ign && ESP_on && !StayOn && (SpdSelect == 'P')){ 
     stop_esp();
   }
 
-  if (!BMS_ign && (Power >= 0) && !StayOn){
+  if (!BMS_ign && (Power >= 0) && !StayOn && (SpdSelect == 'P')){
     ESPTimer = millis();
     if ((ESPTimer - ESPinitTimer >= ESPTimerInterval) || (AuxBattSoC < 75)) {
         //ESPinitTimer = ESPTimer;     

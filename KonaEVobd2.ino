@@ -80,6 +80,10 @@ float mem_PrevSoC = 0;
 float mem_SoC = 0;
 float mem_Power = 0;
 float mem_LastSoC = 0;
+uint8_t nbr_powerOn = 0;
+bool Trig_powerOn = true;
+bool data_ready = false;
+bool code_sent = false;
 
 float BattMinT;
 float BattMaxT;
@@ -271,6 +275,7 @@ bool Power_page = false;
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
 unsigned long ESPTimerInterval = 1800000; // time in milliseconds to turn off ESP when it power-up during 12V battery charge cycle. 
+unsigned long shutdown_timer = 0;
 
 /*////// Variables for Google Sheet data transfer ////////////*/
 bool send_enabled = false;
@@ -377,7 +382,7 @@ void setup() {
   InitCCC = EEPROM.readFloat(28);
   old_lost = EEPROM.readFloat(32);
   old_PIDkWh_100km = EEPROM.readFloat(36);
-  StayOn = EEPROM.readBool(40);
+  nbr_powerOn = EEPROM.readFloat(40);
   PrevOPtimemins = EEPROM.readFloat(44);
   kWh_corr = EEPROM.readFloat(48);
   acc_energy = EEPROM.readFloat(52);
@@ -443,6 +448,8 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
 
   integrate_timer = millis()/1000;  
+
+  ESPinitTimer = millis();
   
 }   
 
@@ -720,6 +727,7 @@ void read_data(){
           TireRR_T = convertToInt(results.frames[2], 4, 1) - 50;
           }        
         pid_counter = 0;
+        data_ready = true;
         break;
   }
   
@@ -844,7 +852,7 @@ void read_data(){
       sendIntervalOn = false;
     }    
     
-    if ((LastSoC + 1) < SoC){ // reset trip after a battery recharge
+    if ((LastSoC + 1) < SoC && (Power > 0) && (LastSoC != 0)){ // reset trip after a battery recharge
       //if (LastSoC = 0){ // To fix a glich where LastSoC = 0 after a power up, not to trigger a reset_trip.
       //  LastSoC = SoC;
       //}
@@ -1172,7 +1180,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","SpdSelect","LastSoC","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","PIDkWh_100","kWh_100km","degrad_ratio","EstLeft_kWh","span_kWh_100km","SoCratio","kWh_update","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","Trip_dist","distance","BattMaxT","acc_Ah","acc_kWh_25","acc_kWh_10","acc_kWh_0","acc_kWh_m10","acc_kWh_m20","acc_kWh_m20p","acc_time_25","acc_time_10","acc_time_0","acc_time_m10","acc_time_m20","acc_time_m20p","acc_dist_25","acc_dist_10","acc_dist_0","acc_dist_m10","acc_dist_m20","acc_dist_m20p","acc_regen"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","SpdSelect","LastSoC","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","PIDkWh_100","kWh_100km","degrad_ratio","EstLeft_kWh","span_kWh_100km","SoCratio","nbr_powerOn","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","Trip_dist","distance","BattMaxT","acc_Ah","acc_kWh_25","acc_kWh_10","acc_kWh_0","acc_kWh_m10","acc_kWh_m20","acc_kWh_m20p","acc_time_25","acc_time_10","acc_time_0","acc_time_m10","acc_time_m20","acc_time_m20p","acc_dist_25","acc_dist_10","acc_dist_0","acc_dist_m10","acc_dist_m20","acc_dist_m20p","acc_regen"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -1214,7 +1222,7 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[37] = EstLeft_kWh;
       sensor_Values[38] = span_kWh_100km;
       sensor_Values[39] = SoCratio;
-      sensor_Values[40] = kWh_update;
+      sensor_Values[40] = nbr_powerOn;
       sensor_Values[41] = TireFL_P;
       sensor_Values[42] = TireFR_P;
       sensor_Values[43] = TireRL_P;
@@ -1294,6 +1302,20 @@ void makeIFTTTRequest(void * pvParameters){
               reset_code = 0;
               initscan = true;
               break;
+
+            case 5:   // Write that esp is going normal shutdown
+            headerNames = String("{\"value1\":\"") + "|||" + "Normal Shutdown" + "|||" + "Power:" + "|||" + Power + "|||" + "SoC:" + "|||" + mem_SoC;
+            reset_code = 0;
+            code_sent = true;
+            //initscan = true;
+            break;
+
+            case 6:   // Write that esp is going normal shutdown
+            headerNames = String("{\"value1\":\"") + "|||" + "Timer Shutdown" + "|||" + "Power:" + "|||" + Power + "|||" + "Timer:" + "|||" + shutdown_timer;
+            reset_code = 0;
+            code_sent = true;
+            //initscan = true;
+            break;
 
         }      
           payload = headerNames;
@@ -1455,6 +1477,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
     LastSoC = SoC;
     PrevBmsSoC = BmsSoC;
     EEPROM.writeFloat(0, Net_kWh);    //save initial CED to Flash memory
+    EEPROM.writeFloat(52, acc_energy);
     EEPROM.writeFloat(4, InitCED);    //save initial CED to Flash memory
     EEPROM.writeFloat(8, InitCEC);    //save initial CEC to Flash memory  
     EEPROM.writeFloat(12, InitSoC);    //save initial SoC to Flash memory
@@ -1484,7 +1507,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
 void ResetCurrTrip(){ // when the car is turned On, current trip values are resetted.
   
     if (
-      ResetOn && (SoC > 1) && (Odometer > 1) && (CED > 1) && (CEC > 1)){ // ResetOn condition might be enough, might need to update code...        
+      ResetOn && (SoC > 1) && (Odometer > 1) && (CED > 1) && (CEC > 1) && data_ready){ // ResetOn condition might be enough, might need to update code...         
         CurrInitAccEnergy = acc_energy;        
         CurrInitCED = CED;
         CurrInitCEC = CEC;
@@ -1556,7 +1579,7 @@ void save_lost(char selector){
           DriveOn = false;
           EEPROM.writeFloat(32, degrad_ratio);
           Serial.println("new_lost saved to EEPROM");
-          EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory
+          EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory          
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
           EEPROM.writeFloat(52, acc_energy);
@@ -1588,10 +1611,10 @@ void save_lost(char selector){
 
 void stop_esp(){       
         ESP_on = false; 
-        if (DriveOn & (SoC > 0)){      //           
+        if ((DriveOn && (SoC > 0)) || (!BMS_ign && data_ready)){      //           
           EEPROM.writeFloat(32, degrad_ratio);
           Serial.println("new_lost saved to EEPROM");
-          EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory
+          EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory          
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
           EEPROM.writeFloat(52, acc_energy);          
@@ -1636,36 +1659,6 @@ void stop_esp(){
         
 }
 
-void start_esp(){
-        tft.init(); // display initialisation
-        tft.begin();
-        tft.setRotation(0);  // 0 & 2 Portrait. 1 & 3 landscape
-        tft.fillScreen(TFT_BLACK);
-        tft.setTextColor(TFT_GREEN);
-        tft.setCursor(0, 0);
-        tft.setTextDatum(MC_DATUM);
-        tft.setTextFont(1);
-        tft.setTextSize(2);        
-        tft.drawString("Starting", tft.width() / 2, tft.height() / 2 - 16);
-        tft.drawString("ESP", tft.width() / 2, tft.height() / 2);
-        delay(1000);        
-        ConnectWifi(tft);
-        send_enabled = true;
-        DrawBackground = true;       
-}
-
-void pause_esp(){
-        tft.setTextFont(1);
-        tft.setTextSize(2);
-        tft.fillScreen(TFT_BLACK);
-        tft.drawString("ESP", tft.width() / 2, tft.height() / 2 - 16);
-        tft.drawString("Paused", tft.width() / 2, tft.height() / 2);          
-        WiFi.disconnect();
-        send_enabled = false;
-        esp_paused = true;        
-        delay(1000);
-        tft.fillScreen(TFT_BLACK);               
-}
 
 void SetupMode(){
     tft.fillScreen(TFT_BLACK);    
@@ -2200,19 +2193,42 @@ void loop() {
         SetupMode();
         }
       }
+
+  if (Trig_powerOn)
+  {    
+    Trig_powerOn = false;
+    nbr_powerOn += 1;      
+    EEPROM.writeFloat(40, nbr_powerOn);
+    EEPROM.commit();      
+  }
+  
   /*/////// Stop ESP /////////////////*/               
   if(!BMS_ign && ESP_on && !StayOn && (SpdSelect == 'P')){  // When car is power off, call stop_esp which saves some data before powering ESP32 down
-    stop_esp();
+    reset_code = 5;
+    if (code_sent){
+       stop_esp();
+    }
+    if (!send_enabled){
+      stop_esp();
+    }
+    
   }
 
-  if (!BMS_ign && (Power >= 0) && !StayOn && (SpdSelect == 'P')){   // When the car is off but the BMS does some maintnance check, wait 30 mins before esp32 power down
+  if (!BMS_ign && (Power >= 0) && !StayOn){   // When the car is off but the BMS does some maintnance check, wait 30 mins before esp32 power down
     ESPTimer = millis();
+    shutdown_timer = (ESPTimer - ESPinitTimer) / 1000;
     if ((ESPTimer - ESPinitTimer >= ESPTimerInterval) || (AuxBattSoC < 75)) {
-        //ESPinitTimer = ESPTimer;     
-    
-      stop_esp();      
+        //ESPinitTimer = ESPTimer; 
+      reset_code = 6;    
+      if (code_sent){
+       stop_esp();
+      }
+      if (!send_enabled){
+        stop_esp();
+      }   
+          
     }
-  }
+  }  
   
   ResetCurrTrip();
   

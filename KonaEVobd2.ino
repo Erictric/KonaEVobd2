@@ -74,7 +74,7 @@ unsigned long ToggleDelay = 1000;
 boolean ResetOn = true;
 int screenNbr = 0;
 
-uint8_t reset_code = 0;
+uint8_t record_code = 0;
 float mem_energy = 0;
 float mem_PrevSoC = 0;
 float mem_SoC = 0;
@@ -84,6 +84,9 @@ uint8_t nbr_powerOn = 0;
 bool Trig_powerOn = true;
 bool data_ready = false;
 bool code_sent = false;
+bool sd_condition1 = false;
+bool sd_condition2 = false;
+bool SoC_saved = false;
 
 float BattMinT;
 float BattMaxT;
@@ -274,14 +277,14 @@ bool Power_page = false;
 
 unsigned long ESPinitTimer = 0;
 unsigned long ESPTimer = 0;
-unsigned long ESPTimerInterval = 1800000; // time in milliseconds to turn off ESP when it power-up during 12V battery charge cycle. 
+unsigned long ESPTimerInterval = 1200; // time in seconds to turn off ESP when it power-up during 12V battery charge cycle. 
 unsigned long shutdown_timer = 0;
 
 /*////// Variables for Google Sheet data transfer ////////////*/
 bool send_enabled = false;
 bool send_data = false;
 bool data_sent = false;
-int nbParam = 73;    //number of parameters to send to Google Sheet
+int nbParam = 76;    //number of parameters to send to Google Sheet
 unsigned long sendInterval = 5000;
 unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
@@ -411,7 +414,9 @@ void setup() {
 
   //initial_eeprom(); //if a new eeprom memory is used it needs to be initialize to something first
 
-
+  nbr_powerOn += 1;      
+  EEPROM.writeFloat(40, nbr_powerOn);
+  EEPROM.commit();
         
 /*/////////////////////////////////////////////////////////////////*/
 /*                    CONNECTION TO OBDII                          */
@@ -765,7 +770,7 @@ void read_data(){
       if(InitRst){  // On Button Trip reset, initial kWh calculation
         Serial.print("1st Reset");
         initscan = true;
-        reset_code = 2;        
+        record_code = 2;        
         reset_trip();        
         //TrigRst = true;
         kWh_corr = 0;
@@ -788,11 +793,11 @@ void read_data(){
           mem_SoC = SoC;
           if((acc_energy < 0.3) && (PrevSoC > SoC))
           {
-            reset_code = 3;            
+            record_code = 3;            
           }
           else
           {
-            reset_code = 4;
+            record_code = 4;
           }
           Serial.print("2nd Reset");
           //TrigRst = false;
@@ -861,7 +866,7 @@ void read_data(){
         mem_LastSoC = LastSoC;
         mem_SoC = SoC;
         initscan = true;
-        reset_code = 1; 
+        record_code = 1; 
         reset_trip();
       //}   
     }
@@ -1180,7 +1185,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","SpdSelect","LastSoC","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","PIDkWh_100","kWh_100km","degrad_ratio","EstLeft_kWh","span_kWh_100km","SoCratio","nbr_powerOn","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","Trip_dist","distance","BattMaxT","acc_Ah","acc_kWh_25","acc_kWh_10","acc_kWh_0","acc_kWh_m10","acc_kWh_m20","acc_kWh_m20p","acc_time_25","acc_time_10","acc_time_0","acc_time_m10","acc_time_m20","acc_time_m20p","acc_dist_25","acc_dist_10","acc_dist_0","acc_dist_m10","acc_dist_m20","acc_dist_m20p","acc_regen"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","SpdSelect","LastSoC","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","PIDkWh_100","kWh_100km","degrad_ratio","EstLeft_kWh","span_kWh_100km","SoCratio","nbr_powerOn","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","Trip_dist","distance","BattMaxT","acc_Ah","acc_kWh_25","acc_kWh_10","acc_kWh_0","acc_kWh_m10","acc_kWh_m20","acc_kWh_m20p","acc_time_25","acc_time_10","acc_time_0","acc_time_m10","acc_time_m20","acc_time_m20p","acc_dist_25","acc_dist_10","acc_dist_0","acc_dist_m10","acc_dist_m20","acc_dist_m20p","acc_regen","MaxDetNb","MinDetNb","Deter_Min"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -1255,14 +1260,17 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[70] = acc_dist_m20;
       sensor_Values[71] = acc_dist_m20p;
       sensor_Values[72] = acc_regen;
+      sensor_Values[73] = MaxDetNb;
+      sensor_Values[74] = MinDetNb;
+      sensor_Values[75] = Deter_Min;
       
       String headerNames = "";
       String payload ="";
       
       int i=0;
       
-      if(initscan || reset_code != 0){
-        switch (reset_code)
+      if(initscan || record_code != 0){
+        switch (record_code)
         {
             case 0:   // No reset only header required, ESP32 power reboot
               while(i!=nbParam)
@@ -1281,38 +1289,45 @@ void makeIFTTTRequest(void * pvParameters){
 
             case 1:   // Write status for Reset after a battery was recharged
               headerNames = String("{\"value1\":\"") + "|||" + "Battery_Recharged" + "|||" + "LastSoc:" + "|||" + mem_LastSoC + "|||" + "Soc:" + "|||" + mem_SoC + "|||" + "Power:" + "|||"  + mem_Power;
-              reset_code = 0;
+              record_code = 0;
               initscan = true;
               break;
 
             case 2:   // Write status for Reset performed with reset button (right button)
               headerNames = String("{\"value1\":\"") + "|||" + "Button_Reset";
-              reset_code = 0;
+              record_code = 0;
               initscan = true;
               break;
 
             case 3:   // Write status for Reset when Acc_energy is less then 0.3kWh when SoC changes
               headerNames = String("{\"value1\":\"") + "|||" + "ACC_energy <0.3" + "|||" + "acc_energy:" + "|||" + mem_energy + "|||" + "PreSoC:" + "|||" + mem_PrevSoC + "|||" + "SoC:" + "|||" + mem_SoC;
-              reset_code = 0;
+              record_code = 0;
               initscan = true;
               break;
 
             case 4:   // Write status for Reset if SoC changes from 100 to 99% not going through 99.5%
               headerNames = String("{\"value1\":\"") + "|||" + "100_to_99SoC_reset" + "|||" + "PreSoc:" + "|||" + mem_PrevSoC + "|||" + "SoC:" + "|||" + mem_SoC;
-              reset_code = 0;
+              record_code = 0;
               initscan = true;
               break;
 
             case 5:   // Write that esp is going normal shutdown
             headerNames = String("{\"value1\":\"") + "|||" + "Normal Shutdown" + "|||" + "Power:" + "|||" + Power + "|||" + "SoC:" + "|||" + mem_SoC;
-            reset_code = 0;
+            record_code = 0;
             code_sent = true;
             //initscan = true;
             break;
 
-            case 6:   // Write that esp is going normal shutdown
+            case 6:   // Write that esp is going timed shutdown
             headerNames = String("{\"value1\":\"") + "|||" + "Timer Shutdown" + "|||" + "Power:" + "|||" + Power + "|||" + "Timer:" + "|||" + shutdown_timer;
-            reset_code = 0;
+            record_code = 0;
+            code_sent = true;
+            //initscan = true;
+            break;
+
+            case 7:   // Write that esp is going low 12V shutdown
+            headerNames = String("{\"value1\":\"") + "|||" + "Low 12V Shutdown" + "|||" + "12V Batt.:" + "|||" + AuxBattSoC + "|||" + "Timer:" + "|||" + shutdown_timer;
+            record_code = 0;
             code_sent = true;
             //initscan = true;
             break;
@@ -1618,7 +1633,7 @@ void stop_esp(){
           EEPROM.writeFloat(44, TripOPtime);  //save initial trip time to Flash memory
           EEPROM.writeFloat(48, kWh_corr);    //save cummulative kWh correction (between 2 SoC values) to Flash memory
           EEPROM.writeFloat(52, acc_energy);          
-          EEPROM.writeFloat(56, SoC);          
+          EEPROM.writeFloat(56, mem_SoC);          
           EEPROM.writeFloat(60, kWh_100km);
           EEPROM.writeFloat(64, acc_Ah);
           EEPROM.writeFloat(68, acc_kWh_25);
@@ -2194,32 +2209,53 @@ void loop() {
         }
       }
 
-  if (Trig_powerOn)
-  {    
-    Trig_powerOn = false;
-    nbr_powerOn += 1;      
-    EEPROM.writeFloat(40, nbr_powerOn);
-    EEPROM.commit();      
-  }
+  //if (Trig_powerOn)
+  //{    
+  //  Trig_powerOn = false;
+  //  nbr_powerOn += 1;      
+  //  EEPROM.writeFloat(40, nbr_powerOn);
+  //  EEPROM.commit();      
+  //}
   
   /*/////// Stop ESP /////////////////*/               
   if(!BMS_ign && ESP_on && !StayOn && (SpdSelect == 'P')){  // When car is power off, call stop_esp which saves some data before powering ESP32 down
-    reset_code = 5;
-    if (code_sent){
-       stop_esp();
+    if (!SoC_saved)
+      {
+        record_code = 5;
+        mem_SoC = SoC;
+        SoC_saved = true;          
+      }    
+    if (code_sent)
+    {      
+      stop_esp();
     }
-    if (!send_enabled){
+    if (!send_enabled)
+    {
       stop_esp();
     }
     
   }
 
   if (!BMS_ign && (Power >= 0) && !StayOn){   // When the car is off but the BMS does some maintnance check, wait 30 mins before esp32 power down
+    if (!SoC_saved)
+    {
+      mem_SoC = SoC;
+      SoC_saved = true;
+    }
     ESPTimer = millis();
     shutdown_timer = (ESPTimer - ESPinitTimer) / 1000;
-    if ((ESPTimer - ESPinitTimer >= ESPTimerInterval) || (AuxBattSoC < 75)) {
-        //ESPinitTimer = ESPTimer; 
-      reset_code = 6;    
+    sd_condition1 = shutdown_timer >= ESPTimerInterval;
+    sd_condition2 = ((AuxBattSoC > 0) && (AuxBattSoC < 75));
+    if (sd_condition1 || sd_condition2) {
+              
+      if (sd_condition1)
+      {
+        record_code = 6;                  
+      } 
+      if (sd_condition2)
+      {
+        record_code = 7;            
+      }
       if (code_sent){
        stop_esp();
       }

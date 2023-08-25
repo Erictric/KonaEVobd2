@@ -80,13 +80,15 @@ float mem_PrevSoC = 0;
 float mem_SoC = 0;
 float mem_Power = 0;
 float mem_LastSoC = 0;
-uint8_t nbr_powerOn = 0;
-bool Trig_powerOn = true;
+uint16_t nbr_powerOn = 0;
 bool data_ready = false;
 bool code_sent = false;
 bool sd_condition1 = false;
 bool sd_condition2 = false;
 bool SoC_saved = false;
+bool code_received = false;
+bool shutdown_esp = false;
+bool wifiReconn = false;
 
 float BattMinT;
 float BattMaxT;
@@ -245,8 +247,6 @@ bool TrigRst = false;
 bool kWh_update = false;
 bool corr_update = false;
 bool ESP_on = false;
-bool esp_paused = false;
-int update_lock = 0;
 bool DrawBackground = true;
 char title1[12];
 char title2[12];
@@ -412,11 +412,7 @@ void setup() {
   acc_dist_m20p = EEPROM.readFloat(136);
   acc_regen = EEPROM.readFloat(140);
 
-  //initial_eeprom(); //if a new eeprom memory is used it needs to be initialize to something first
-
-  nbr_powerOn += 1;      
-  EEPROM.writeFloat(40, nbr_powerOn);
-  EEPROM.commit();
+  //initial_eeprom(); //if a new eeprom memory is used it needs to be initialize to something first  
         
 /*/////////////////////////////////////////////////////////////////*/
 /*                    CONNECTION TO OBDII                          */
@@ -452,10 +448,12 @@ void setup() {
 
   tft.fillScreen(TFT_BLACK);
 
-  integrate_timer = millis()/1000;  
-
-  ESPinitTimer = millis();
+  integrate_timer = millis()/1000;
   
+  nbr_powerOn += 1;      
+  EEPROM.writeFloat(40, nbr_powerOn);
+  EEPROM.commit();
+    
 }   
 
 /*////////////////////////////////////////////////////////////////////////*/
@@ -1167,6 +1165,7 @@ float calc_kwh(float min_SoC, float max_SoC){
 void makeIFTTTRequest(void * pvParameters){
   for(;;){
     if (send_enabled && send_data) {
+      code_sent = false;
       Serial.print("Connecting to "); 
       Serial.print(server);
       
@@ -1178,6 +1177,7 @@ void makeIFTTTRequest(void * pvParameters){
       Serial.println();
       if(!!!client.connected()) {
         Serial.println("Failed to connect...");
+        code_sent = true;
       }
       
       Serial.print("Request resource: "); 
@@ -1185,7 +1185,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       float sensor_Values[nbParam];
       
-      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","MaxDetNb","OPtimemins","OUTDOORtemp","INDOORtemp","SpdSelect","LastSoC","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","PIDkWh_100","kWh_100km","degrad_ratio","EstLeft_kWh","span_kWh_100km","SoCratio","nbr_powerOn","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","Trip_dist","distance","BattMaxT","acc_Ah","acc_kWh_25","acc_kWh_10","acc_kWh_0","acc_kWh_m10","acc_kWh_m20","acc_kWh_m20p","acc_time_25","acc_time_10","acc_time_0","acc_time_m10","acc_time_m20","acc_time_m20p","acc_dist_25","acc_dist_10","acc_dist_0","acc_dist_m10","acc_dist_m20","acc_dist_m20p","acc_regen","MaxDetNb","MinDetNb","Deter_Min"};;
+      char column_name[ ][15]={"SoC","Power","BattMinT","Heater","Net_Ah","Net_kWh","AuxBattSoC","AuxBattV","Max_Pwr","Max_Reg","BmsSoC","MAXcellv","MINcellv","MAXcellvNb","MINcellvNb","BATTv","BATTc","Speed","Odometer","CEC","CED","CDC","CCC","SOH","BMS_ign","OPtimemins","OUTDOORtemp","INDOORtemp","SpdSelect","LastSoC","Calc_Used","Calc_Left","TripOPtime","CurrOPtime","PIDkWh_100","kWh_100km","degrad_ratio","EstLeft_kWh","span_kWh_100km","SoCratio","nbr_powerOn","TireFL_P","TireFR_P","TireRL_P","TireRR_P","TireFL_T","TireFR_T","TireRL_T","TireRR_T","acc_energy","Trip_dist","distance","BattMaxT","acc_Ah","acc_kWh_25","acc_kWh_10","acc_kWh_0","acc_kWh_m10","acc_kWh_m20","acc_kWh_m20p","acc_time_25","acc_time_10","acc_time_0","acc_time_m10","acc_time_m20","acc_time_m20p","acc_dist_25","acc_dist_10","acc_dist_0","acc_dist_m10","acc_dist_m20","acc_dist_m20p","acc_regen","MaxDetNb","MinDetNb","Deter_Min"};;
       
       sensor_Values[0] = SoC;
       sensor_Values[1] = Power;
@@ -1211,7 +1211,7 @@ void makeIFTTTRequest(void * pvParameters){
       sensor_Values[21] = CDC;
       sensor_Values[22] = CCC;
       sensor_Values[23] = SOH;
-      sensor_Values[24] = MaxDetNb;        
+      sensor_Values[24] = BMS_ign;        
       sensor_Values[25] = OPtimemins;
       sensor_Values[26] = OUTDOORtemp;
       sensor_Values[27] = INDOORtemp;
@@ -1269,7 +1269,7 @@ void makeIFTTTRequest(void * pvParameters){
       
       int i=0;
       
-      if(initscan || record_code != 0){
+      if(initscan || record_code != 0 || shutdown_esp){
         switch (record_code)
         {
             case 0:   // No reset only header required, ESP32 power reboot
@@ -1313,22 +1313,26 @@ void makeIFTTTRequest(void * pvParameters){
 
             case 5:   // Write that esp is going normal shutdown
             headerNames = String("{\"value1\":\"") + "|||" + "Normal Shutdown" + "|||" + "Power:" + "|||" + Power + "|||" + "SoC:" + "|||" + mem_SoC;
-            record_code = 0;
-            code_sent = true;
+            //record_code = 0;
+            //code_sent = true;
+            code_received = true;
             //initscan = true;
+            Serial.println("Code Received");
             break;
 
             case 6:   // Write that esp is going timed shutdown
             headerNames = String("{\"value1\":\"") + "|||" + "Timer Shutdown" + "|||" + "Power:" + "|||" + Power + "|||" + "Timer:" + "|||" + shutdown_timer;
-            record_code = 0;
-            code_sent = true;
+            //record_code = 0;
+            //code_sent = true;
+            code_received = true;
             //initscan = true;
             break;
 
             case 7:   // Write that esp is going low 12V shutdown
             headerNames = String("{\"value1\":\"") + "|||" + "Low 12V Shutdown" + "|||" + "12V Batt.:" + "|||" + AuxBattSoC + "|||" + "Timer:" + "|||" + shutdown_timer;
-            record_code = 0;
-            code_sent = true;
+            //record_code = 0;
+            //code_sent = true;
+            code_received = true;
             //initscan = true;
             break;
 
@@ -1362,13 +1366,14 @@ void makeIFTTTRequest(void * pvParameters){
       client.println(jsonObject.length());
       client.println();
       client.println(jsonObject);
-            
+                  
       int timeout = 5; // 50 * 100mS = 5 seconds            
       while(!!!client.available() && (timeout-- > 0)){
         delay(100);
       }
       if(!!!client.available()) {
         Serial.println("No response...");
+        code_sent = true;
       }
       while(client.available()){
         Serial.write(client.read());
@@ -1377,7 +1382,7 @@ void makeIFTTTRequest(void * pvParameters){
       Serial.println();
       Serial.println("closing connection");
       client.stop();
-
+          
       send_data = false;
       pwr_changed = 0;
       loop_count = 0;
@@ -1389,6 +1394,10 @@ void makeIFTTTRequest(void * pvParameters){
       if(corr_update){  
         corr_update = false;  // reset corr_update after it has been recorded
       }
+      if (code_received){
+        Serial.println("Sending code sent");
+        code_sent = true;
+      }      
     }    
     vTaskDelay(10); // some delay is required to reset watchdog timer
   }
@@ -1626,7 +1635,7 @@ void save_lost(char selector){
 
 void stop_esp(){       
         ESP_on = false; 
-        if ((DriveOn && (SoC > 0)) || (!BMS_ign && data_ready)){      //           
+        if (DriveOn && (SoC > 0)){      //           
           EEPROM.writeFloat(32, degrad_ratio);
           Serial.println("new_lost saved to EEPROM");
           EEPROM.writeFloat(36, PIDkWh_100);    //save actual kWh/100 in Flash memory          
@@ -2208,39 +2217,36 @@ void loop() {
         SetupMode();
         }
       }
-
-  //if (Trig_powerOn)
-  //{    
-  //  Trig_powerOn = false;
-  //  nbr_powerOn += 1;      
-  //  EEPROM.writeFloat(40, nbr_powerOn);
-  //  EEPROM.commit();      
-  //}
   
   /*/////// Stop ESP /////////////////*/               
   if(!BMS_ign && ESP_on && !StayOn && (SpdSelect == 'P')){  // When car is power off, call stop_esp which saves some data before powering ESP32 down
+    record_code = 5;
+    shutdown_esp = true;
     if (!SoC_saved)
       {
-        record_code = 5;
         mem_SoC = SoC;
-        SoC_saved = true;          
+        SoC_saved = true;                  
       }    
     if (code_sent)
     {      
+      Serial.println("Code sent and Normal shutdown");
       stop_esp();
     }
-    if (!send_enabled)
+    else if (!send_enabled)
     {
+      Serial.println("No Code sent and Normal shutdown");
       stop_esp();
     }
     
   }
 
-  if (!BMS_ign && (Power >= 0) && !StayOn){   // When the car is off but the BMS does some maintnance check, wait 30 mins before esp32 power down
+  else if (!BMS_ign && (Power >= 0) && !StayOn && data_ready){   // When the car is off but the BMS does some maintnance check, wait 30 mins before esp32 power down
     if (!SoC_saved)
     {
+      ESPinitTimer = millis();
       mem_SoC = SoC;
       SoC_saved = true;
+      
     }
     ESPTimer = millis();
     shutdown_timer = (ESPTimer - ESPinitTimer) / 1000;
@@ -2250,21 +2256,34 @@ void loop() {
               
       if (sd_condition1)
       {
-        record_code = 6;                  
+        record_code = 6;
+        shutdown_esp = true;                 
       } 
-      if (sd_condition2)
+      else if (sd_condition2)
       {
-        record_code = 7;            
+        record_code = 7;
+        shutdown_esp = true;           
       }
       if (code_sent){
+       Serial.println("Code sent and Timer shutdown");
        stop_esp();
       }
-      if (!send_enabled){
+      else if (!send_enabled){
+        Serial.println("No Code sent and Timer shutdown");
         stop_esp();
-      }   
-          
-    }
+      }  
+    }    
   }  
+  
+  if ((WiFi.status() != WL_CONNECTED) && BMS_ign && !wifiReconn) {  // If esp32 is On when start the car, reconnect wifi if not connected
+    ConnectWifi(tft);
+    wifiReconn = true;
+    if (WiFi.status() == WL_CONNECTED) {
+      send_enabled = true;
+      send_data = true;      
+    }
+    DrawBackground = true;  
+  }
   
   ResetCurrTrip();
   

@@ -53,9 +53,10 @@ void ConnectToOBD2(TFT_eSPI& tft){
     tft.drawString(" Phase 2", tft.width() / 2, tft.height() / 2 + 48);
     delay(500);       
     
-    esp_deep_sleep_start();
+    //esp_deep_sleep_start();
   }
-  
+
+  else{
   Serial.println("Connected to OBDII");
       
   tft.fillScreen(TFT_BLACK);
@@ -65,5 +66,6 @@ void ConnectToOBD2(TFT_eSPI& tft){
 
   delay(500);
   tft.fillScreen(TFT_BLACK);
+  }
 }
 #endif

@@ -782,30 +782,32 @@ void read_data(){
       }
       if(!InitRst){ // kWh calculation when the Initial reset is not active
         // After a Trip Reset, perform a new reset if SoC changed without a Net_kWh increase (in case SoC was just about to change when the reset was performed)
-        if(((acc_energy < 0.3) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5))){
+        if(((acc_energy < 0.25) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5))){
         //if(((Net_kWh < 0.3) && (PrevSoC > SoC)) || ((SoC > 98.5) && ((PrevSoC - SoC) > 0.5)) || (TrigRst && (PrevSoC > SoC))){ 
-        //if((acc_energy < 0.3) && (PrevSoC > SoC)){ 
-           initscan = true;
-          mem_energy = acc_energy;
-          mem_PrevSoC = PrevSoC;
-          mem_SoC = SoC;
+        //if((acc_energy < 0.25) && (PrevSoC > SoC)){ 
+          
           if((acc_energy < 0.3) && (PrevSoC > SoC))
           {
-            record_code = 3;            
+            initscan = true;
+            mem_energy = acc_energy;
+            mem_PrevSoC = PrevSoC;
+            mem_SoC = SoC;
+            record_code = 3;
+            Serial.print("2nd Reset");
+            //TrigRst = false;
+            reset_trip();
+            kWh_corr = 0;
+            used_kwh = calc_kwh(SoC, InitSoC);
+            left_kwh = calc_kwh(0, SoC);
+            PrevSoC = SoC;
+            Prev_kWh = Net_kWh;
+            kWh_update = true;            
           }
           else
           {
             record_code = 4;
           }
-          Serial.print("2nd Reset");
-          //TrigRst = false;
-          reset_trip();
-          kWh_corr = 0;
-          used_kwh = calc_kwh(SoC, InitSoC);
-          left_kwh = calc_kwh(0, SoC);
-          PrevSoC = SoC;
-          Prev_kWh = Net_kWh;
-          kWh_update = true;          
+                   
         }
         else if (((PrevSoC > SoC) && ((PrevSoC - SoC) < 1)) || ((PrevSoC < SoC) && (SpdSelect == 'P'))){ // Normal kWh calculation when SoC decreases and exception if a 0 gitch in SoC data
           kWh_corr = 0;          

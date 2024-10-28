@@ -240,7 +240,7 @@ float acc_dist_m20p;
 bool DriveOn = false;
 bool StayOn = false;
 bool SetupOn = false;
-bool StartWifi = true;
+bool StartWifi = false;
 bool initscan = false;
 bool InitRst = false;
 bool TrigRst = false;
@@ -285,7 +285,7 @@ bool send_enabled = false;
 bool send_data = false;
 bool data_sent = false;
 int nbParam = 76;    //number of parameters to send to Google Sheet
-unsigned long sendInterval = 5000;
+unsigned long sendInterval = 500;
 unsigned long currentTimer = 0;
 unsigned long previousTimer = 0;
 bool sendIntervalOn = false;
@@ -327,7 +327,8 @@ void setup() {
   /*              Open serial monitor communications                */
   /*////////////////////////////////////////////////////////////////*/
 
-  Serial.begin(9600);  
+  Serial.begin(9600);
+  Serial.setDebugOutput(false);  
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
@@ -436,22 +437,22 @@ void setup() {
 
   /*//////////////Initialise Task on core0 to send data on Google Sheet ////////////////*/
   
-  xTaskCreatePinnedToCore(
-    makeIFTTTRequest, /* Function to implement the task */
-    "makeIFTTTRequest", /* Name of the task */
-    10000,  /* Stack size in words */
-    NULL,  /* Task input parameter */
-    5,  /* Priority of the task */
-    &Task1,  /* Task handle. */
-    0); /* Core where the task should run */    
-    delay(500);
+  //xTaskCreatePinnedToCore(
+  //  makeIFTTTRequest, /* Function to implement the task */
+  //  "makeIFTTTRequest", /* Name of the task */
+  //  10000,  /* Stack size in words */
+  //  NULL,  /* Task input parameter */
+  //  5,  /* Priority of the task */
+  //  &Task1,  /* Task handle. */
+  //  0); /* Core where the task should run */    
+  //  delay(500);
 
   tft.fillScreen(TFT_BLACK);
 
   integrate_timer = millis()/1000;
   
-  nbr_powerOn += 1;      
-  EEPROM.writeFloat(40, nbr_powerOn);
+  //nbr_powerOn += 1;      
+  //EEPROM.writeFloat(40, nbr_powerOn);
   EEPROM.commit();
     
 }   
@@ -535,9 +536,11 @@ void read_data(){
   //  Read PID 220101 each iteration to get faster battery power update      
   myELM327.sendCommand("AT SH 7E4");       // Set Header for BMS
   
-  if (myELM327.queryPID("220101")) {      // Service and Message PID = hex 22 0101 => dec 34, 257
+  if (myELM327.queryPID(34, 257)) {      // Service and Message PID = hex 22 0101 => dec 34, 257
     char* payload = myELM327.payload;
     size_t payloadLen = myELM327.recBytes;
+    Serial.print("payloadLen: ");
+    Serial.println(payloadLen);
     
     processPayload(payload, payloadLen, results);
       
@@ -590,7 +593,7 @@ void read_data(){
   
         myELM327.sendCommand("AT SH 7E4");       // Set Header for BMS
         
-        if (myELM327.queryPID("220105")) {      // Service and Message PID = hex 22 0105 => dec 34, 261
+        if (myELM327.queryPID(34, 261)) {      // Service and Message PID = hex 22 0105 => dec 34, 261
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;
                   
@@ -617,7 +620,7 @@ void read_data(){
   
         myELM327.sendCommand("AT SH 7E4");       // Set Header for BMS
         
-        if (myELM327.queryPID("220106")) {      // Service and Message PID = hex 22 0106 => dec 34, 262
+        if (myELM327.queryPID(34, 262)) {      // Service and Message PID = hex 22 0106 => dec 34, 262
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;          
 
@@ -635,7 +638,7 @@ void read_data(){
      case 3: 
         myELM327.sendCommand("AT SH 7E2");     // Set Header for Vehicle Control Unit
         
-        if (myELM327.queryPID("2101")) {      // Service and Message PID
+        if (myELM327.queryPID(33, 1)) {      // Service and Message PID
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;         
 
@@ -653,11 +656,13 @@ void read_data(){
           if (Drive) selector[0] = 'D'; 
           SpdSelect =  selector[0];
           }
+        pid_counter = 0;
+        data_ready = true;
         break;
 
      case 4: 
         myELM327.sendCommand("AT SH 7E2");     // Set Header for Vehicle Control Unit
-        if (myELM327.queryPID("2102")) {      // Service and Message PID
+        if (myELM327.queryPID(33, 2)) {      // Service and Message PID
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;          
 
@@ -677,7 +682,7 @@ void read_data(){
         
      case 5: 
         myELM327.sendCommand("AT SH 7C6");       // Set Header for CLU Cluster Module
-        if (myELM327.queryPID("22B002")) {      // Service and Message PID
+        if (myELM327.queryPID(34, 45058)) {      // Service and Message PID
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;          
           
@@ -688,7 +693,7 @@ void read_data(){
 
      case 6:  
        myELM327.sendCommand("AT SH 7B3");       //Set Header Aircon 
-        if (myELM327.queryPID("220100")) {      // Service and Message PID
+        if (myELM327.queryPID(34, 256)) {      // Service and Message PID
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;
 
@@ -700,7 +705,7 @@ void read_data(){
 
      case 7:  
         myELM327.sendCommand("AT SH 7D4");       //Set Speed Header 
-        if (myELM327.queryPID("220101")) {      // Service and Message PID
+        if (myELM327.queryPID(34, 257)) {      // Service and Message PID
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;
 
@@ -712,7 +717,7 @@ void read_data(){
 
       case 8:  
         myELM327.sendCommand("AT SH 7A0");       //Set BCM Header 
-        if (myELM327.queryPID("22C00B")) {      // Service and Message PID
+        if (myELM327.queryPID(34, 49163)) {      // Service and Message PID
           char* payload = myELM327.payload;
           size_t payloadLen = myELM327.recBytes;
 
@@ -809,6 +814,7 @@ void read_data(){
           PrevSoC = SoC;
           Prev_kWh = Net_kWh;
           kWh_update = true;
+          SocRatioCalc();
           
           if((used_kwh >= 2) && (SpdSelect == 'D')){ // Wait till 2 kWh has been used to start calculating ratio to have a better accuracy
             degrad_ratio = Net_kWh / used_kwh;
@@ -1107,10 +1113,10 @@ double Interpolate(double xValues[], double yValues[], int numValues, double poi
   t = t * t * (3 - 2 * t);
   return yValues[i] * (1 - t) + yValues[i + 1] * t;
 }
-
+/*
 float calc_kwh(float min_SoC, float max_SoC){
   
-  /* variable for kWh/%SoC calculation: xValues = %SoC and yValues = kWh */ 
+  /* variable for kWh/%SoC calculation: xValues = %SoC and yValues = kWh */ /*
   const int numValues = 21;
   double xValues[] = {  0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 };
   //double yValues[] = { 0.5487, 0.5921, 0.5979, 0.6053, 0.6139, 0.6199, 0.6238, 0.6268, 0.6295, 0.6324, 0.6362, 0.6418, 0.6524, 0.6601, 0.6684, 0.6771, 0.6859, 0.6951, 0.7046, 0.7147, 0.7249};
@@ -1128,6 +1134,22 @@ float calc_kwh(float min_SoC, float max_SoC){
   }
   //return_kwh = integral * interval;  
   return_kwh = (integral * interval) * Calc_kWh_corr;
+  return return_kwh;
+  }*/
+
+float calc_kwh(float min_SoC, float max_SoC) {
+  
+  float fullBattCapacity = 77.4;
+  float SoC100 = 100;
+  double b = 0.5653;
+  //double b = 0.5733;
+  double a = ((fullBattCapacity * (SoCratio /100)) - (b * SoC100)) / pow(SoC100,2);  
+  
+  float max_kwh = a * pow(max_SoC,2) + b * max_SoC;
+  float min_kwh = a * pow(min_SoC,2) + b * min_SoC;
+  float return_kwh;
+    
+  return_kwh = max_kwh - min_kwh;
   return return_kwh;
 }
 
@@ -1494,8 +1516,7 @@ void reset_trip() { //Overall trip reset. Automatic if the car has been recharge
 
 void ResetCurrTrip(){ // when the car is turned On, current trip values are resetted.  
 
-    if (
-      ResetOn && (SoC > 1) && data_ready){ // ResetOn condition might be enough, might need to update code...         
+    if (ResetOn && (SoC > 1) && (BmsSoC > 0) && data_ready){ // ResetOn condition might be enough, might need to update code...         
         CurrInitAccEnergy = acc_energy;        
         CurrInitCED = CED;
         CurrInitCEC = CEC;
@@ -1546,14 +1567,11 @@ void setVessOff(char selector){
       }
 
 void initial_eeprom(){
-  EEPROM.writeFloat(92, 660);
-          EEPROM.writeFloat(96, 3278);
-          EEPROM.writeFloat(100, 4950);
-  //for (int i = 68; i < 148; i+=4) {
-    //if (isnan(EEPROM.readFloat(i))){    
-    //  EEPROM.writeFloat(i, 0);
-    //}  
-  //}
+  for (int i = 68; i < 148; i+=4) {
+    if (isnan(EEPROM.readFloat(i))){    
+      EEPROM.writeFloat(i, 0);
+    }  
+  }
   EEPROM.commit();  
 }
 
@@ -2159,7 +2177,8 @@ void loop() {
     
   /*/////// Display Page Number /////////////////*/
   
-  if(!SetupOn && (ESP_on || (Power < 0))){      
+  //if(!SetupOn && (ESP_on || (Power < 0))){
+  if(!SetupOn){     
       
     switch (screenNbr){  // select page to display                
       case 0: page1(); break;
@@ -2235,7 +2254,7 @@ void loop() {
     }    
   }  
   
-  if ((WiFi.status() != WL_CONNECTED) && BMS_ign && !wifiReconn) {  // If esp32 is On when start the car, reconnect wifi if not connected
+  /*if ((WiFi.status() != WL_CONNECTED) && BMS_ign && !wifiReconn) {  // If esp32 is On when start the car, reconnect wifi if not connected
     ConnectWifi(tft);
     wifiReconn = true;
     if (WiFi.status() == WL_CONNECTED) {
@@ -2243,7 +2262,7 @@ void loop() {
       send_data = true;      
     }
     DrawBackground = true;  
-  }
+  }*/
   
   ResetCurrTrip();
   
